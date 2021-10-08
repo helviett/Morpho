@@ -79,3 +79,4 @@ graph_info.json
 # End of https://www.toptal.com/developers/gitignore/api/c++,cmake,conan,visualstudiocode
 
 build
+.vscode
