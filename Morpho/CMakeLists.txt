@@ -10,16 +10,20 @@ conan_basic_setup()
 
 find_package(Vulkan REQUIRED)
 
-include_directories(${Vulkan_INCLUDE_DIRS})
+if (NOT Vulkan_FOUND)
+    message ("Vulkan is not found")
+endif()
 
-file(GLOB BASE_SRC "*.cpp" "*.hpp" "*.h" )
-file(GLOB BASE_HEADERS "*.hpp" "*.h")
+# include_directories(Vulkan::Headers)
+
+file(GLOB_RECURSE BASE_SRC "*.cpp" "*.hpp" "*.h" )
+file(GLOB_RECURSE BASE_HEADERS "*.hpp" "*.h")
 
 # Add source to this project's executable.
 add_executable (Morpho ${BASE_SRC})
 
 
-target_link_libraries(Morpho ${CONAN_LIBS} ${Vulkan_LIBRARY})
+target_link_libraries(Morpho ${CONAN_LIBS} Vulkan::Vulkan)
 
 set(SHADERS "${CMAKE_SOURCE_DIR}/Morpho/shaders")
 set(TEXTURES "${CMAKE_SOURCE_DIR}/Morpho/textures")

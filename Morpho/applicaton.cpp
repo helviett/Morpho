@@ -19,3 +19,7 @@ void Application::main_loop() {
         glfwPollEvents();
     }
 }
+
+void Application::set_graphics_context(Morpho::Vulkan::Context* context) {
+    this->context = context;
+}
