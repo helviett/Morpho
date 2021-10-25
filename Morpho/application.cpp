@@ -1,4 +1,4 @@
-#include "Application.hpp"
+#include "application.hpp"
 
 void Application::run() {
     init_window();

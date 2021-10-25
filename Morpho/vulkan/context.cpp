@@ -29,10 +29,33 @@ VkResult CreateDebugUtilsMessengerEXT(
 
 void Context::init() {
     create_instance();
+    select_physical_device();
+    create_device();
 }
 
 void Context::create_device() {
+    QueueFamilyIndices indices = retrieve_queue_family_indices(physical_device);
 
+    VkPhysicalDeviceFeatures device_features{};
+
+    VkDeviceQueueCreateInfo queue_create_info{};
+    queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+    queue_create_info.queueFamilyIndex = indices.graphics_family.value();
+    queue_create_info.queueCount = 1;
+    float priority = 1.0f;
+    queue_create_info.pQueuePriorities = &priority;
+
+    VkDeviceCreateInfo device_create_info{};
+    device_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+    device_create_info.queueCreateInfoCount = 1;
+    device_create_info.pQueueCreateInfos = &queue_create_info;
+    device_create_info.pEnabledFeatures = &device_features;
+
+    if (vkCreateDevice(physical_device, &device_create_info, nullptr, &device) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to create logical device.");
+    }
+
+    vkGetDeviceQueue(device, indices.graphics_family.value(), 0, &graphics_queue);
 }
 
 void Context::create_instance() {
@@ -155,8 +178,55 @@ Context::~Context() {
     if (enable_validation_layers) {
         DestroyDebugUtilsMessengerEXT(instance, debug_messenger, nullptr);
     }
-
+    vkDestroyDevice(device, nullptr);
     vkDestroyInstance(instance, nullptr);
+}
+
+void Context::select_physical_device() {
+    uint32_t device_count = 0;
+    vkEnumeratePhysicalDevices(instance, &device_count, nullptr);
+    std::vector<VkPhysicalDevice> devices(device_count);
+    vkEnumeratePhysicalDevices(instance, &device_count, devices.data());
+    for (const auto& device : devices) {
+        if (is_physical_device_suitable(device)) {
+            physical_device = device;
+            break;
+        }
+    }
+    if (physical_device == VK_NULL_HANDLE) {
+        throw std::runtime_error("There is no suitable GPU.");
+    }
+}
+
+bool Context::is_physical_device_suitable(const VkPhysicalDevice& device) {
+    VkPhysicalDeviceProperties device_properties;
+    vkGetPhysicalDeviceProperties(device, &device_properties);
+    VkPhysicalDeviceFeatures device_features;
+    vkGetPhysicalDeviceFeatures(device, &device_features);
+    auto queue_indicies = retrieve_queue_family_indices(device);
+
+    return
+        device_properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU
+        && queue_indicies.is_complete();
+}
+
+Context::QueueFamilyIndices Context::retrieve_queue_family_indices(VkPhysicalDevice device) {
+    QueueFamilyIndices indices{};
+    uint32_t queue_family_count = 0;
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, nullptr);
+    std::vector<VkQueueFamilyProperties> queue_families(queue_family_count);
+    vkGetPhysicalDeviceQueueFamilyProperties(device, &queue_family_count, queue_families.data());
+    for (int i = 0; i < queue_families.size(); i++) {
+        const auto& queue_family = queue_families[i];
+        if (queue_family.queueFlags & VK_QUEUE_GRAPHICS_BIT) {
+            indices.graphics_family = i;
+        }
+        if (indices.is_complete()) {
+            break;
+        }
+    }
+
+    return indices;
 }
 
 }

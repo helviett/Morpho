@@ -5,6 +5,7 @@
 #include <stdexcept>
 #include <vector>
 #include <iostream>
+#include <optional>
 
 namespace Morpho::Vulkan {
 
@@ -40,6 +41,9 @@ private:
     };
     VkDebugUtilsMessengerEXT debug_messenger;
     VkInstance instance;
+    VkPhysicalDevice physical_device = VK_NULL_HANDLE;
+    VkDevice device;
+    VkQueue graphics_queue;
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -48,11 +52,22 @@ private:
         void* pUserData
     );
 
+    struct QueueFamilyIndices {
+        std::optional<uint32_t> graphics_family;
+
+        bool is_complete() {
+            return graphics_family.has_value();
+        }
+    };
+
     void create_instance();
     void create_device();
     std::vector<const char*> get_required_extensions();
     bool are_validation_layers_supported();
     void setup_debug_messenger();
+    void select_physical_device();
+    bool is_physical_device_suitable(const VkPhysicalDevice& device);
+    QueueFamilyIndices retrieve_queue_family_indices(VkPhysicalDevice device);
 };
 
 }
