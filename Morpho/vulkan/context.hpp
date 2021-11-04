@@ -1,11 +1,13 @@
 #pragma once
 
+#define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <vector>
 #include <iostream>
 #include <optional>
+#include <set>
 
 namespace Morpho::Vulkan {
 
@@ -29,7 +31,7 @@ public:
     ~Context();
 	void operator=(const Context &) = delete;
 
-    void init();
+    void init(GLFWwindow *window);
 private:
 #ifdef NDEBUG
     const bool enable_validation_layers = false;
@@ -39,11 +41,21 @@ private:
     const std::vector<const char*> validation_layers = {
         "VK_LAYER_KHRONOS_validation"
     };
+    const std::vector<const char*> device_extensions = {
+        VK_KHR_SWAPCHAIN_EXTENSION_NAME
+    };
     VkDebugUtilsMessengerEXT debug_messenger;
     VkInstance instance;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
     VkDevice device;
     VkQueue graphics_queue;
+    VkQueue present_queue;
+    VkSurfaceKHR surface;
+    VkSwapchainKHR swapchain;
+    std::vector<VkImage> swapchain_images;
+    VkFormat swapchain_format;
+    VkExtent2D swapchain_extent;
+    std::vector<VkImageView> swapchain_image_views;
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -54,20 +66,35 @@ private:
 
     struct QueueFamilyIndices {
         std::optional<uint32_t> graphics_family;
+        std::optional<uint32_t> present_family;
 
-        bool is_complete() {
-            return graphics_family.has_value();
+        bool are_complete() {
+            return graphics_family.has_value() && present_family.has_value();
         }
+    };
+
+    struct SwapChainSupportDetails {
+        VkSurfaceCapabilitiesKHR capabilities;
+        std::vector<VkSurfaceFormatKHR> formats;
+        std::vector<VkPresentModeKHR> present_modes;
     };
 
     void create_instance();
     void create_device();
     std::vector<const char*> get_required_extensions();
     bool are_validation_layers_supported();
+    bool are_device_extensions_supported(VkPhysicalDevice device);
     void setup_debug_messenger();
     void select_physical_device();
     bool is_physical_device_suitable(const VkPhysicalDevice& device);
+    void create_surface(GLFWwindow* window);
     QueueFamilyIndices retrieve_queue_family_indices(VkPhysicalDevice device);
+    SwapChainSupportDetails query_swapchain_support_details(VkPhysicalDevice device);
+    VkPresentModeKHR choose_present_mode(std::vector<VkPresentModeKHR>& modes);
+    VkSurfaceFormatKHR choose_surface_format(std::vector<VkSurfaceFormatKHR>& formats);
+    VkExtent2D choose_swapchain_extent(const VkSurfaceCapabilitiesKHR& capabilities);
+    void create_swapchain();
+    void create_image_views();
 };
 
 }

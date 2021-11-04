@@ -2,6 +2,7 @@
 
 void Application::run() {
     init_window();
+    context->init(window);
     main_loop();
 }
 
