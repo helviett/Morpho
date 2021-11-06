@@ -62,6 +62,10 @@ private:
     VkPipelineLayout pipeline_layout;
     VkRenderPass render_pass;
     std::vector<VkFramebuffer> framebuffers;
+    VkCommandPool command_pool;
+    VkCommandBuffer command_buffer;
+    VkSemaphore render_semaphore, present_semaphore;
+    VkFence render_fence;
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -105,6 +109,9 @@ private:
     void create_graphics_pipeline();
     void create_render_pass();
     void create_framebuffers();
+    void create_command_pool();
+    void create_command_buffers();
+    void create_sync_structures();
 
     static std::vector<char> read_all_bytes(const std::string& filename);
 };

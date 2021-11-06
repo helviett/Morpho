@@ -36,6 +36,9 @@ void Context::init(GLFWwindow* window) {
     create_image_views();
     create_render_pass();
     create_graphics_pipeline();
+    create_command_pool();
+    create_command_buffers();
+    create_sync_structures();
 }
 
 void Context::create_surface(GLFWwindow* window) {
@@ -193,6 +196,7 @@ void Context::setup_debug_messenger() {
 }
 
 Context::~Context() {
+    vkDestroyCommandPool(device, command_pool, nullptr);
     for (auto framebuffer : framebuffers) {
         vkDestroyFramebuffer(device, framebuffer, nullptr);
     }
@@ -621,6 +625,50 @@ void Context::create_framebuffers() {
         if (vkCreateFramebuffer(device, &create_info, nullptr, &framebuffers[i]) != VK_SUCCESS) {
             throw std::runtime_error("Unable to create framebuffer.");
         }
+    }
+}
+
+void Context::create_command_pool() {
+    auto indicies = retrieve_queue_family_indices(physical_device);
+
+    VkCommandPoolCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    create_info.queueFamilyIndex = indicies.graphics_family.value();
+    create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    if (vkCreateCommandPool(device, &create_info, nullptr, &command_pool) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to create command pool.");
+    }
+}
+
+void Context::create_command_buffers() {
+    VkCommandBufferAllocateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    info.commandPool = command_pool;
+    info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    info.commandBufferCount = 1;
+
+    if (vkAllocateCommandBuffers(device, &info, &command_buffer) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to allocate command buffer.");
+    }
+}
+
+void Context::create_sync_structures() {
+    VkFenceCreateInfo fence_info{};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.pNext = nullptr;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    VkSemaphoreCreateInfo semaphore_info{};
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    semaphore_info.pNext = nullptr;
+    semaphore_info.flags = 0;
+
+    if (
+        vkCreateFence(device, &fence_info, nullptr, &render_fence) != VK_SUCCESS
+        || vkCreateSemaphore(device, &semaphore_info, nullptr, &render_semaphore) != VK_SUCCESS
+        || vkCreateSemaphore(device, &semaphore_info, nullptr, &present_semaphore) != VK_SUCCESS
+    ) {
+        throw std::runtime_error("Unable to create synchronization structures.");
     }
 }
 
