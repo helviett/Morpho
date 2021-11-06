@@ -8,6 +8,8 @@
 #include <iostream>
 #include <optional>
 #include <set>
+#include <fstream>
+#include <filesystem>
 
 namespace Morpho::Vulkan {
 
@@ -56,6 +58,10 @@ private:
     VkFormat swapchain_format;
     VkExtent2D swapchain_extent;
     std::vector<VkImageView> swapchain_image_views;
+    VkPipeline pipeline;
+    VkPipelineLayout pipeline_layout;
+    VkRenderPass render_pass;
+    std::vector<VkFramebuffer> framebuffers;
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -95,6 +101,12 @@ private:
     VkExtent2D choose_swapchain_extent(const VkSurfaceCapabilitiesKHR& capabilities);
     void create_swapchain();
     void create_image_views();
+    VkShaderModule create_shader_module(const std::vector<char>& bytes);
+    void create_graphics_pipeline();
+    void create_render_pass();
+    void create_framebuffers();
+
+    static std::vector<char> read_all_bytes(const std::string& filename);
 };
 
 }

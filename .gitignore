@@ -80,3 +80,4 @@ graph_info.json
 
 build
 .vscode
+*.spv

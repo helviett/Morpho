@@ -24,11 +24,4 @@ add_executable (Morpho ${BASE_SRC})
 
 
 target_link_libraries(Morpho ${CONAN_LIBS} Vulkan::Vulkan)
-
-set(SHADERS "${CMAKE_SOURCE_DIR}/Morpho/shaders")
-set(TEXTURES "${CMAKE_SOURCE_DIR}/Morpho/textures")
-set(SHADERS_BIN "${CMAKE_CURRENT_BINARY_DIR}/bin/shaders")
-set(TEXTURES_BIN "${CMAKE_CURRENT_BINARY_DIR}/bin/textures")
-
-
-# TODO: Add tests and install targets if needed.
+set_property(TARGET Morpho PROPERTY VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
