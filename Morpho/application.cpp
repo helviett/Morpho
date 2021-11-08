@@ -18,6 +18,7 @@ void Application::init_window() {
 void Application::main_loop() {
     while (!glfwWindowShouldClose(window)) {
         glfwPollEvents();
+        context->draw();
     }
 }
 

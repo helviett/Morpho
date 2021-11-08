@@ -1,5 +1,7 @@
 #pragma once
 
+#define _USE_MATH_DEFINES
+#include <cmath>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -10,6 +12,7 @@
 #include <set>
 #include <fstream>
 #include <filesystem>
+
 
 namespace Morpho::Vulkan {
 
@@ -33,6 +36,8 @@ public:
     ~Context();
 	void operator=(const Context &) = delete;
 
+
+    void draw();
     void init(GLFWwindow *window);
 private:
 #ifdef NDEBUG
@@ -66,6 +71,7 @@ private:
     VkCommandBuffer command_buffer;
     VkSemaphore render_semaphore, present_semaphore;
     VkFence render_fence;
+    int frame;
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,

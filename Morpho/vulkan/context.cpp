@@ -36,6 +36,7 @@ void Context::init(GLFWwindow* window) {
     create_image_views();
     create_render_pass();
     create_graphics_pipeline();
+    create_framebuffers();
     create_command_pool();
     create_command_buffers();
     create_sync_structures();
@@ -69,7 +70,7 @@ void Context::create_device() {
     device_create_info.queueCreateInfoCount = (uint32_t)queue_create_infos.size();
     device_create_info.pQueueCreateInfos = queue_create_infos.data();
     device_create_info.pEnabledFeatures = &device_features;
-    device_create_info.enabledExtensionCount = device_extensions.size();
+    device_create_info.enabledExtensionCount = (uint32_t)device_extensions.size();
     device_create_info.ppEnabledExtensionNames = device_extensions.data();
 
     if (vkCreateDevice(physical_device, &device_create_info, nullptr, &device) != VK_SUCCESS) {
@@ -596,13 +597,13 @@ void Context::create_render_pass() {
     subpass.colorAttachmentCount = 1;
     subpass.pColorAttachments = &color_attachment_ref;
 
-    VkRenderPassCreateInfo rende_pass_create_info{};
-    rende_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    rende_pass_create_info.attachmentCount = 1;
-    rende_pass_create_info.pAttachments = &color_attachment;
-    rende_pass_create_info.subpassCount = 1;
-    rende_pass_create_info.pSubpasses = &subpass;
-    if (vkCreateRenderPass(device, &rende_pass_create_info, nullptr, &render_pass) != VK_SUCCESS) {
+    VkRenderPassCreateInfo render_pass_create_info{};
+    render_pass_create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    render_pass_create_info.attachmentCount = 1;
+    render_pass_create_info.pAttachments = &color_attachment;
+    render_pass_create_info.subpassCount = 1;
+    render_pass_create_info.pSubpasses = &subpass;
+    if (vkCreateRenderPass(device, &render_pass_create_info, nullptr, &render_pass) != VK_SUCCESS) {
         throw std::runtime_error("failed to create render pass!");
     }
 }
@@ -621,7 +622,7 @@ void Context::create_framebuffers() {
         create_info.pAttachments = attachments;
         create_info.width = swapchain_extent.width;
         create_info.height = swapchain_extent.height;
-        create_info.layers = 0;
+        create_info.layers = 1;
         if (vkCreateFramebuffer(device, &create_info, nullptr, &framebuffers[i]) != VK_SUCCESS) {
             throw std::runtime_error("Unable to create framebuffer.");
         }
@@ -670,6 +671,76 @@ void Context::create_sync_structures() {
     ) {
         throw std::runtime_error("Unable to create synchronization structures.");
     }
+}
+
+void Context::draw() {
+    vkWaitForFences(device, 1, &render_fence, VK_TRUE, 1000000000);
+    vkResetFences(device, 1, &render_fence);
+
+    uint32_t image_index;
+    if (vkAcquireNextImageKHR(device, swapchain, 1000000000, present_semaphore, nullptr, &image_index) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to acquire swapchain image.");
+    }
+
+    vkResetCommandBuffer(command_buffer, 0);
+    VkCommandBufferBeginInfo command_buffer_begin_info{};
+    command_buffer_begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    command_buffer_begin_info.pNext = nullptr;
+    command_buffer_begin_info.pInheritanceInfo = nullptr;
+    command_buffer_begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
+
+    VkClearValue clear_value{};
+    bool up = (frame / 10000) % 2;
+    auto t = (frame % 10000) / 10000.0f;
+    t = up ? 1 - t : t;
+    clear_value.color = { {t, t, t, 1.0f, } };
+
+    VkRenderPassBeginInfo rpb_info{};
+    rpb_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	rpb_info.pNext = nullptr;
+	rpb_info.renderPass = render_pass;
+	rpb_info.renderArea.offset.x = 0;
+	rpb_info.renderArea.offset.y = 0;
+	rpb_info.renderArea.extent = swapchain_extent;
+	rpb_info.framebuffer = framebuffers[image_index];
+    rpb_info.pClearValues = &clear_value;
+    rpb_info.clearValueCount = 1;
+
+    vkCmdBeginRenderPass(command_buffer, &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
+
+    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+    vkCmdDraw(command_buffer, 3, 1, 0, 0);
+
+
+    vkCmdEndRenderPass(command_buffer);
+    vkEndCommandBuffer(command_buffer);
+
+    VkSubmitInfo submit = {};
+	submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submit.pNext = nullptr;
+	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+	submit.pWaitDstStageMask = &waitStage;
+	submit.waitSemaphoreCount = 1;
+	submit.pWaitSemaphores = &present_semaphore;
+	submit.signalSemaphoreCount = 1;
+	submit.pSignalSemaphores = &render_semaphore;
+	submit.commandBufferCount = 1;
+	submit.pCommandBuffers = &command_buffer;
+
+	vkQueueSubmit(graphics_queue, 1, &submit, render_fence);
+
+    VkPresentInfoKHR present_info = {};
+	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	present_info.pNext = nullptr;
+	present_info.pSwapchains = &swapchain;
+	present_info.swapchainCount = 1;
+	present_info.pWaitSemaphores = &render_semaphore;
+	present_info.waitSemaphoreCount = 1;
+	present_info.pImageIndices = &image_index;
+	vkQueuePresentKHR(present_queue, &present_info);
+	frame++;
 }
 
 }
