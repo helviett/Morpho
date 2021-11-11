@@ -40,6 +40,7 @@ void Context::init(GLFWwindow* window) {
     create_command_pool();
     create_command_buffers();
     create_sync_structures();
+    create_vertex_and_index_buffers();
 }
 
 void Context::create_surface(GLFWwindow* window) {
@@ -467,12 +468,15 @@ void Context::create_graphics_pipeline() {
     fragShaderStageCreateInfo.pName = "main";
     VkPipelineShaderStageCreateInfo shaderStages[] = { vertexShaderStageCreateInfo, fragShaderStageCreateInfo, };
 
+    auto binding_description = Vertex::get_binding_description();
+    auto attribute_descriptions = Vertex::get_attributes_descriptions();
+
     VkPipelineVertexInputStateCreateInfo vertex_input_info{};
     vertex_input_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input_info.vertexBindingDescriptionCount = 0;
-    vertex_input_info.pVertexBindingDescriptions = nullptr;
-    vertex_input_info.vertexAttributeDescriptionCount = 0;
-    vertex_input_info.pVertexAttributeDescriptions = nullptr;
+    vertex_input_info.vertexBindingDescriptionCount = 1;
+    vertex_input_info.pVertexBindingDescriptions = &binding_description;
+    vertex_input_info.vertexAttributeDescriptionCount = attribute_descriptions.size();
+    vertex_input_info.pVertexAttributeDescriptions = attribute_descriptions.data();
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly{};
     input_assembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -711,7 +715,11 @@ void Context::draw() {
     vkCmdBeginRenderPass(command_buffer, &rpb_info, VK_SUBPASS_CONTENTS_INLINE);
 
     vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-    vkCmdDraw(command_buffer, 3, 1, 0, 0);
+
+    VkDeviceSize offsets[] = { 0, };
+    vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
+    vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdDrawIndexed(command_buffer, indices.size(), 1, 0, 0, 0);
 
 
     vkCmdEndRenderPass(command_buffer);
@@ -741,6 +749,121 @@ void Context::draw() {
 	present_info.pImageIndices = &image_index;
 	vkQueuePresentKHR(present_queue, &present_info);
 	frame++;
+}
+
+void Context::create_vertex_and_index_buffers() {
+    VkBuffer staging_buffer;
+    VkDeviceMemory staging_buffer_memory;
+    VkDeviceSize vertex_buffer_size = sizeof(Vertex) * vertices.size();
+    VkDeviceSize index_buffer_size = sizeof(uint16_t) * indices.size();
+    VkDeviceSize staging_buffer_size = std::max(vertex_buffer_size, index_buffer_size);
+    create_buffer(
+        staging_buffer_size,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+        staging_buffer,
+        staging_buffer_memory
+    );
+    create_buffer(
+        vertex_buffer_size,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        vertex_buffer,
+        vertex_buffer_memory
+    );
+    create_buffer(
+        vertex_buffer_size,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
+        index_buffer,
+        index_buffer_memory
+    );
+    void *data;
+    vkMapMemory(device, staging_buffer_memory, 0, vertex_buffer_size, 0, &data);
+    memcpy(data, vertices.data(), (size_t)vertex_buffer_size);
+    vkUnmapMemory(device, staging_buffer_memory);
+
+    copy_buffer(staging_buffer, vertex_buffer, vertex_buffer_size);
+
+    vkMapMemory(device, staging_buffer_memory, 0, index_buffer_size, 0, &data);
+    memcpy(data, indices.data(), (size_t)index_buffer_size);
+    vkUnmapMemory(device, staging_buffer_memory);
+
+    copy_buffer(staging_buffer, index_buffer, index_buffer_size);
+
+    vkDestroyBuffer(device, staging_buffer, nullptr);
+    vkFreeMemory(device, staging_buffer_memory, nullptr);
+}
+
+void Context::create_buffer(
+    VkDeviceSize size,
+    VkBufferUsageFlags usage,
+    VkMemoryPropertyFlags properties,
+    VkBuffer &buffer,
+    VkDeviceMemory &memory
+) {
+    VkBufferCreateInfo buffer_info{};
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    buffer_info.size = size;
+    buffer_info.usage = usage;
+
+    if (vkCreateBuffer(device, &buffer_info, nullptr, &buffer) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to create buffer.");
+    }
+
+    VkMemoryRequirements memory_requirements;
+    vkGetBufferMemoryRequirements(device, buffer, &memory_requirements);
+
+    VkMemoryAllocateInfo allocate_info{};
+    allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    allocate_info.allocationSize = memory_requirements.size;
+    allocate_info.memoryTypeIndex = find_memory_type(memory_requirements.memoryTypeBits, properties);
+
+    if (vkAllocateMemory(device, &allocate_info, nullptr, &memory) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to allocate memory for buffer.");
+    }
+
+    vkBindBufferMemory(device, buffer, memory, 0);
+}
+
+uint32_t Context::find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags flags) {
+    VkPhysicalDeviceMemoryProperties memory_properties;
+    vkGetPhysicalDeviceMemoryProperties(physical_device, &memory_properties);
+    for (uint32_t i = 0; i < memory_properties.memoryTypeCount; i++) {
+        if ((type_filter & (1 << i)) && (memory_properties.memoryTypes[i].propertyFlags & flags) == flags) {
+            return i;
+        }
+    }
+
+    throw std::runtime_error("Unable to find proper memory type.");
+}
+
+void Context::copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) {
+    VkCommandBufferBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.pNext = nullptr;
+    begin_info.pInheritanceInfo = nullptr;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(command_buffer, &begin_info);
+
+    VkBufferCopy copy{};
+    copy.srcOffset = 0;
+    copy.dstOffset = 0;
+    copy.size = size;
+
+    vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy);
+
+    vkEndCommandBuffer(command_buffer);
+
+    VkSubmitInfo submit_info{};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+
+    vkQueueSubmit(graphics_queue, 1, &submit_info, nullptr);
+    vkQueueWaitIdle(graphics_queue);
 }
 
 }

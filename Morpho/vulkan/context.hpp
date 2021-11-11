@@ -1,7 +1,5 @@
 #pragma once
 
-#define _USE_MATH_DEFINES
-#include <cmath>
 #define VK_USE_PLATFORM_WIN32_KHR
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
@@ -12,7 +10,7 @@
 #include <set>
 #include <fstream>
 #include <filesystem>
-
+#include <glm/glm.hpp>
 
 namespace Morpho::Vulkan {
 
@@ -28,6 +26,42 @@ void DestroyDebugUtilsMessengerEXT(
     VkDebugUtilsMessengerEXT debugMessenger,
     const VkAllocationCallbacks* pAllocator
 );
+
+struct Vertex {
+    glm::vec3 position;
+    glm::vec3 color;
+
+    static VkVertexInputBindingDescription get_binding_description() {
+        VkVertexInputBindingDescription desc{};
+        desc.binding = 0;
+        desc.stride = sizeof(Vertex);
+        desc.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+        return desc;
+    }
+
+    static std::vector<VkVertexInputAttributeDescription> get_attributes_descriptions() {
+        VkVertexInputAttributeDescription position{};
+        position.binding = 0;
+        position.location = 0;
+        position.format = VK_FORMAT_R32G32B32_SFLOAT;
+        position.offset = 0;
+
+        VkVertexInputAttributeDescription color{};
+        color.binding = 0;
+        color.location = 1;
+        color.format = VK_FORMAT_R32G32B32_SFLOAT;
+        color.offset = offsetof(Vertex, color);
+
+        std::vector<VkVertexInputAttributeDescription> descriptions(2);
+        descriptions[0] = position;
+        descriptions[1] = color;
+
+        return descriptions;
+    }
+
+
+};
 
 class Context {
 public:
@@ -71,7 +105,20 @@ private:
     VkCommandBuffer command_buffer;
     VkSemaphore render_semaphore, present_semaphore;
     VkFence render_fence;
+    VkBuffer vertex_buffer, index_buffer;
+    VkDeviceMemory vertex_buffer_memory, index_buffer_memory;
     int frame;
+
+    const std::vector<Vertex> vertices = {
+        {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
+        {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
+        {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}}
+    };
+    const std::vector<uint16_t> indices = {
+        0, 1, 2, 2, 3, 0
+    };
+
 
     static VKAPI_ATTR VkBool32 VKAPI_CALL debug_callback(
         VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
@@ -118,6 +165,16 @@ private:
     void create_command_pool();
     void create_command_buffers();
     void create_sync_structures();
+    void create_vertex_and_index_buffers();
+    void create_buffer(
+        VkDeviceSize size,
+        VkBufferUsageFlags usage,
+        VkMemoryPropertyFlags properties,
+        VkBuffer &buffer,
+        VkDeviceMemory &memory
+    );
+    void copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
+    uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags flags);
 
     static std::vector<char> read_all_bytes(const std::string& filename);
 };
