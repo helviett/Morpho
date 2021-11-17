@@ -11,6 +11,7 @@
 #include <fstream>
 #include <filesystem>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 namespace Morpho::Vulkan {
 
@@ -79,12 +80,20 @@ private:
 #else
     const bool enable_validation_layers = true;
 #endif
+    static const size_t FRAME_OVERLAP = 2;
     const std::vector<const char*> validation_layers = {
         "VK_LAYER_KHRONOS_validation"
     };
     const std::vector<const char*> device_extensions = {
         VK_KHR_SWAPCHAIN_EXTENSION_NAME
     };
+
+    struct CameraData {
+        glm::mat4 model;
+        glm::mat4 view;
+        glm::mat4 projection;
+    };
+
     VkDebugUtilsMessengerEXT debug_messenger;
     VkInstance instance;
     VkPhysicalDevice physical_device = VK_NULL_HANDLE;
@@ -101,13 +110,23 @@ private:
     VkPipelineLayout pipeline_layout;
     VkRenderPass render_pass;
     std::vector<VkFramebuffer> framebuffers;
-    VkCommandPool command_pool;
-    VkCommandBuffer command_buffer;
-    VkSemaphore render_semaphore, present_semaphore;
-    VkFence render_fence;
     VkBuffer vertex_buffer, index_buffer;
     VkDeviceMemory vertex_buffer_memory, index_buffer_memory;
-    int frame;
+    uint32_t frame_number;
+    CameraData camera_data;
+    VkDescriptorSetLayout descriptor_set_layout;
+    VkDescriptorPool descriptor_pool;
+
+    struct FrameData {
+        VkSemaphore render_semaphore, present_semaphore;
+        VkFence render_fence;
+        VkCommandPool command_pool;
+        VkCommandBuffer command_buffer;
+        VkBuffer camera_uniform_buffer;
+        VkDeviceMemory camera_buffer_memory;
+        VkDescriptorSet camera_uniform;
+    } frames[FRAME_OVERLAP];
+
 
     const std::vector<Vertex> vertices = {
         {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
@@ -175,6 +194,8 @@ private:
     );
     void copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size);
     uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags flags);
+    FrameData& get_current_frame_data();
+    void create_descriptor_sets();
 
     static std::vector<char> read_all_bytes(const std::string& filename);
 };

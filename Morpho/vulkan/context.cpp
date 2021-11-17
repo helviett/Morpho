@@ -35,6 +35,7 @@ void Context::init(GLFWwindow* window) {
     create_swapchain();
     create_image_views();
     create_render_pass();
+    create_descriptor_sets();
     create_graphics_pipeline();
     create_framebuffers();
     create_command_pool();
@@ -198,7 +199,7 @@ void Context::setup_debug_messenger() {
 }
 
 Context::~Context() {
-    vkDestroyCommandPool(device, command_pool, nullptr);
+    // vkDestroyCommandPool(device, command_pool, nullptr);
     for (auto framebuffer : framebuffers) {
         vkDestroyFramebuffer(device, framebuffer, nullptr);
     }
@@ -509,7 +510,7 @@ void Context::create_graphics_pipeline() {
     rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
     rasterizer.lineWidth = 1.0f;
     rasterizer.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterizer.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     rasterizer.depthBiasEnable = VK_FALSE;
     rasterizer.depthBiasConstantFactor = 0.0f;
     rasterizer.depthBiasClamp = 0.0f;
@@ -549,8 +550,8 @@ void Context::create_graphics_pipeline() {
 
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount = 0;
-    pipeline_layout_info.pSetLayouts = nullptr;
+    pipeline_layout_info.setLayoutCount = 1;
+    pipeline_layout_info.pSetLayouts = &descriptor_set_layout;
     pipeline_layout_info.pushConstantRangeCount = 0;
     pipeline_layout_info.pPushConstantRanges = nullptr;
 
@@ -640,20 +641,28 @@ void Context::create_command_pool() {
     create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     create_info.queueFamilyIndex = indicies.graphics_family.value();
     create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-    if (vkCreateCommandPool(device, &create_info, nullptr, &command_pool) != VK_SUCCESS) {
-        throw std::runtime_error("Unable to create command pool.");
+    for (size_t i = 0; i < FRAME_OVERLAP; i++) {
+        auto& frame_data = frames[i];
+        if (vkCreateCommandPool(device, &create_info, nullptr, &frame_data.command_pool) != VK_SUCCESS) {
+           throw std::runtime_error("Unable to create command pool.");
+        }
     }
 }
 
 void Context::create_command_buffers() {
-    VkCommandBufferAllocateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    info.commandPool = command_pool;
-    info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    info.commandBufferCount = 1;
 
-    if (vkAllocateCommandBuffers(device, &info, &command_buffer) != VK_SUCCESS) {
-        throw std::runtime_error("Unable to allocate command buffer.");
+
+    for (size_t i = 0; i < FRAME_OVERLAP; i++) {
+        auto& frame_data = frames[i];
+        VkCommandBufferAllocateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        info.commandPool = frame_data.command_pool;
+        info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        info.commandBufferCount = 1;
+
+        if (vkAllocateCommandBuffers(device, &info, &frame_data.command_buffer) != VK_SUCCESS) {
+            throw std::runtime_error("Unable to allocate command buffer.");
+        }
     }
 }
 
@@ -668,23 +677,50 @@ void Context::create_sync_structures() {
     semaphore_info.pNext = nullptr;
     semaphore_info.flags = 0;
 
-    if (
-        vkCreateFence(device, &fence_info, nullptr, &render_fence) != VK_SUCCESS
-        || vkCreateSemaphore(device, &semaphore_info, nullptr, &render_semaphore) != VK_SUCCESS
-        || vkCreateSemaphore(device, &semaphore_info, nullptr, &present_semaphore) != VK_SUCCESS
-    ) {
-        throw std::runtime_error("Unable to create synchronization structures.");
+    for (size_t i = 0; i < FRAME_OVERLAP; i++) {
+        auto &frame_data = frames[i];
+        if (
+            vkCreateFence(device, &fence_info, nullptr, &frame_data.render_fence) != VK_SUCCESS
+            || vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_data.render_semaphore) != VK_SUCCESS
+            || vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_data.present_semaphore) != VK_SUCCESS
+        ) {
+            throw std::runtime_error("Unable to create synchronization structures.");
+        }
     }
 }
 
 void Context::draw() {
-    vkWaitForFences(device, 1, &render_fence, VK_TRUE, 1000000000);
-    vkResetFences(device, 1, &render_fence);
+    auto& frame_data = get_current_frame_data();
+    auto& command_buffer = frame_data.command_buffer;
+    vkWaitForFences(device, 1, &frame_data.render_fence, VK_TRUE, 1000000000);
+    vkResetFences(device, 1, &frame_data.render_fence);
 
     uint32_t image_index;
-    if (vkAcquireNextImageKHR(device, swapchain, 1000000000, present_semaphore, nullptr, &image_index) != VK_SUCCESS) {
+    const uint64_t timeout = 1000000000;
+    if (
+        vkAcquireNextImageKHR(
+            device,
+            swapchain,
+            timeout,
+            frame_data.present_semaphore,
+            nullptr, &image_index
+        ) != VK_SUCCESS
+    ) {
         throw std::runtime_error("Unable to acquire swapchain image.");
     }
+
+    CameraData ubo;
+    auto time = frame_number / 1000.0f;
+    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.projection =
+        glm::perspective(glm::radians(45.0f), swapchain_extent.width / (float)swapchain_extent.height, 0.1f, 10.0f);
+    ubo.projection[1][1] *= -1;
+
+    void* data;
+    vkMapMemory(device, frame_data.camera_buffer_memory, 0, sizeof(CameraData), 0, &data);
+    memcpy(data, &ubo, sizeof(ubo));
+    vkUnmapMemory(device, frame_data.camera_buffer_memory);
 
     vkResetCommandBuffer(command_buffer, 0);
     VkCommandBufferBeginInfo command_buffer_begin_info{};
@@ -696,8 +732,8 @@ void Context::draw() {
     vkBeginCommandBuffer(command_buffer, &command_buffer_begin_info);
 
     VkClearValue clear_value{};
-    bool up = (frame / 10000) % 2;
-    auto t = (frame % 10000) / 10000.0f;
+    bool up = (frame_number / 10000) % 2;
+    auto t = (frame_number % 10000) / 10000.0f;
     t = up ? 1 - t : t;
     clear_value.color = { {t, t, t, 1.0f, } };
 
@@ -719,6 +755,17 @@ void Context::draw() {
     VkDeviceSize offsets[] = { 0, };
     vkCmdBindVertexBuffers(command_buffer, 0, 1, &vertex_buffer, offsets);
     vkCmdBindIndexBuffer(command_buffer, index_buffer, 0, VK_INDEX_TYPE_UINT16);
+    vkCmdBindDescriptorSets(
+        command_buffer,
+        VK_PIPELINE_BIND_POINT_GRAPHICS,
+        pipeline_layout,
+        0,
+        1,
+        &frame_data.camera_uniform,
+        0,
+        nullptr
+    );
+
     vkCmdDrawIndexed(command_buffer, indices.size(), 1, 0, 0, 0);
 
 
@@ -731,24 +778,24 @@ void Context::draw() {
 	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 	submit.pWaitDstStageMask = &waitStage;
 	submit.waitSemaphoreCount = 1;
-	submit.pWaitSemaphores = &present_semaphore;
+	submit.pWaitSemaphores = &frame_data.present_semaphore;
 	submit.signalSemaphoreCount = 1;
-	submit.pSignalSemaphores = &render_semaphore;
+	submit.pSignalSemaphores = &frame_data.render_semaphore;
 	submit.commandBufferCount = 1;
 	submit.pCommandBuffers = &command_buffer;
 
-	vkQueueSubmit(graphics_queue, 1, &submit, render_fence);
+	vkQueueSubmit(graphics_queue, 1, &submit, frame_data.render_fence);
 
     VkPresentInfoKHR present_info = {};
 	present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
 	present_info.pNext = nullptr;
 	present_info.pSwapchains = &swapchain;
 	present_info.swapchainCount = 1;
-	present_info.pWaitSemaphores = &render_semaphore;
+	present_info.pWaitSemaphores = &frame_data.render_semaphore;
 	present_info.waitSemaphoreCount = 1;
 	present_info.pImageIndices = &image_index;
 	vkQueuePresentKHR(present_queue, &present_info);
-	frame++;
+	frame_number++;
 }
 
 void Context::create_vertex_and_index_buffers() {
@@ -840,6 +887,8 @@ uint32_t Context::find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags f
 }
 
 void Context::copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) {
+    auto command_buffer = get_current_frame_data().command_buffer;
+
     VkCommandBufferBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
     begin_info.pNext = nullptr;
@@ -864,6 +913,73 @@ void Context::copy_buffer(VkBuffer src, VkBuffer dst, VkDeviceSize size) {
 
     vkQueueSubmit(graphics_queue, 1, &submit_info, nullptr);
     vkQueueWaitIdle(graphics_queue);
+}
+
+Context::FrameData& Context::get_current_frame_data() {
+    return frames[frame_number % FRAME_OVERLAP];
+}
+
+void Context::create_descriptor_sets() {
+    VkDescriptorSetLayoutBinding binding;
+    binding.binding = 0;
+    binding.descriptorCount = 1;
+    binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    binding.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+    VkDescriptorSetLayoutCreateInfo layout_create_info{};
+    layout_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    layout_create_info.bindingCount = 1;
+    layout_create_info.pBindings = &binding;
+
+    if (vkCreateDescriptorSetLayout(device, &layout_create_info, nullptr, &descriptor_set_layout) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to create descriptor set layout.");
+    }
+
+    VkDescriptorPoolSize pool_size{};
+    pool_size.descriptorCount = 100;
+    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+
+    VkDescriptorPoolCreateInfo pool_create_info{};
+    pool_create_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_create_info.maxSets = 100;
+    pool_create_info.poolSizeCount = 1;
+    pool_create_info.pPoolSizes = &pool_size;
+
+    if (vkCreateDescriptorPool(device, &pool_create_info, nullptr, &descriptor_pool) != VK_SUCCESS) {
+        throw std::runtime_error("Unable to create descriptor pool.");
+    }
+
+    for (size_t i = 0; i < FRAME_OVERLAP; i++) {
+        auto& frame_data = frames[i];
+        create_buffer(
+            sizeof(CameraData),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+            frame_data.camera_uniform_buffer,
+            frame_data.camera_buffer_memory
+        );
+        VkDescriptorSetAllocateInfo allocate_info{};
+        allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        allocate_info.descriptorPool = descriptor_pool;
+        allocate_info.descriptorSetCount = 1;
+        allocate_info.pSetLayouts = &descriptor_set_layout;
+        vkAllocateDescriptorSets(device, &allocate_info, &frame_data.camera_uniform);
+
+        VkDescriptorBufferInfo buffer_info{};
+        buffer_info.buffer = frame_data.camera_uniform_buffer;
+        buffer_info.offset = 0;
+        buffer_info.range = sizeof(CameraData);
+
+        VkWriteDescriptorSet write{};
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstSet = frame_data.camera_uniform;
+        write.dstBinding = 0;
+        write.dstArrayElement = 0;
+        write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        write.descriptorCount = 1;
+        write.pBufferInfo = &buffer_info;
+        vkUpdateDescriptorSets(device, 1, &write, 0, nullptr);
+    }
 }
 
 }
