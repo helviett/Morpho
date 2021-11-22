@@ -12,8 +12,14 @@
 #include <filesystem>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <array>
 
 namespace Morpho::Vulkan {
+
+#define VK_CHECK(result, message) \
+    if (result != VK_SUCCESS) { \
+        throw std::runtime_error(message);\
+    }
 
 VkResult CreateDebugUtilsMessengerEXT(
     VkInstance instance,
@@ -30,7 +36,7 @@ void DestroyDebugUtilsMessengerEXT(
 
 struct Vertex {
     glm::vec3 position;
-    glm::vec3 color;
+    glm::vec2 uv;
 
     static VkVertexInputBindingDescription get_binding_description() {
         VkVertexInputBindingDescription desc{};
@@ -42,21 +48,21 @@ struct Vertex {
     }
 
     static std::vector<VkVertexInputAttributeDescription> get_attributes_descriptions() {
-        VkVertexInputAttributeDescription position{};
-        position.binding = 0;
-        position.location = 0;
-        position.format = VK_FORMAT_R32G32B32_SFLOAT;
-        position.offset = 0;
+        VkVertexInputAttributeDescription position_binding{};
+        position_binding.binding = 0;
+        position_binding.location = 0;
+        position_binding.format = VK_FORMAT_R32G32B32_SFLOAT;
+        position_binding.offset = 0;
 
-        VkVertexInputAttributeDescription color{};
-        color.binding = 0;
-        color.location = 1;
-        color.format = VK_FORMAT_R32G32B32_SFLOAT;
-        color.offset = offsetof(Vertex, color);
+        VkVertexInputAttributeDescription uv_binding{};
+        uv_binding.binding = 0;
+        uv_binding.location = 1;
+        uv_binding.format = VK_FORMAT_R32G32B32_SFLOAT;
+        uv_binding.offset = offsetof(Vertex, uv);
 
         std::vector<VkVertexInputAttributeDescription> descriptions(2);
-        descriptions[0] = position;
-        descriptions[1] = color;
+        descriptions[0] = position_binding;
+        descriptions[1] = uv_binding;
 
         return descriptions;
     }
@@ -116,6 +122,10 @@ private:
     CameraData camera_data;
     VkDescriptorSetLayout descriptor_set_layout;
     VkDescriptorPool descriptor_pool;
+    VkImage texture_image;
+    VkDeviceMemory texture_image_memory;
+    VkImageView texture_image_view;
+    VkSampler sampler;
 
     struct FrameData {
         VkSemaphore render_semaphore, present_semaphore;
@@ -124,15 +134,15 @@ private:
         VkCommandBuffer command_buffer;
         VkBuffer camera_uniform_buffer;
         VkDeviceMemory camera_buffer_memory;
-        VkDescriptorSet camera_uniform;
+        VkDescriptorSet descriptor_set;
     } frames[FRAME_OVERLAP];
 
 
     const std::vector<Vertex> vertices = {
-        {{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-        {{0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-        {{0.5f, 0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
-        {{-0.5f, 0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}}
+        { { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f } },
+        { { 0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f } },
+        { { 0.5f, 0.5f, 0.0f }, { 0.0f, 1.0f } },
+        { { -0.5f, 0.5f, 0.0f }, { 1.0f, 1.0f } }
     };
     const std::vector<uint16_t> indices = {
         0, 1, 2, 2, 3, 0
@@ -196,6 +206,29 @@ private:
     uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags flags);
     FrameData& get_current_frame_data();
     void create_descriptor_sets();
+    void load_texture();
+    void create_image(
+        uint32_t width,
+        uint32_t height,
+        VkFormat format,
+        VkImageUsageFlags usage,
+        VkMemoryPropertyFlags properties,
+        VkImage &image,
+        VkDeviceMemory &memory
+    );
+    VkImageView create_image_view(VkImage image, VkFormat format);
+    void copy_buffer_to_image(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
+    void transition_image_layout(
+        VkImage image,
+        VkFormat format,
+        VkImageLayout from,
+        VkImageLayout to,
+        VkAccessFlags src_access_mask,
+        VkAccessFlags dst_access_mask,
+        VkPipelineStageFlags src_stage,
+        VkPipelineStageFlags dst_stage
+    );
+    void create_sampler();
 
     static std::vector<char> read_all_bytes(const std::string& filename);
 };
