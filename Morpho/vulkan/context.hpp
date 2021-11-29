@@ -1,6 +1,8 @@
 #pragma once
 
 #define VK_USE_PLATFORM_WIN32_KHR
+#define GLM_FORCE_RADIANS
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <stdexcept>
@@ -126,6 +128,9 @@ private:
     VkDeviceMemory texture_image_memory;
     VkImageView texture_image_view;
     VkSampler sampler;
+    VkImage depth_image;
+    VkDeviceMemory depth_image_memory;
+    VkImageView depth_image_view;
 
     struct FrameData {
         VkSemaphore render_semaphore, present_semaphore;
@@ -142,10 +147,17 @@ private:
         { { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f } },
         { { 0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f } },
         { { 0.5f, 0.5f, 0.0f }, { 0.0f, 1.0f } },
-        { { -0.5f, 0.5f, 0.0f }, { 1.0f, 1.0f } }
+        { { -0.5f, 0.5f, 0.0f }, { 1.0f, 1.0f } },
+
+        { { -0.5f, -0.5f, -0.5f }, { 1.0f, 0.0f } },
+        { { 0.5f, -0.5f, -0.5f }, { 0.0f, 0.0f } },
+        { { 0.5f, 0.5f, -0.5f }, { 0.0f, 1.0f } },
+        { { -0.5f, 0.5f, -0.5f }, { 1.0f, 1.0f } }
     };
+
     const std::vector<uint16_t> indices = {
-        0, 1, 2, 2, 3, 0
+        0, 1, 2, 2, 3, 0,
+        4, 5, 6, 6, 7, 4
     };
 
 
@@ -216,7 +228,7 @@ private:
         VkImage &image,
         VkDeviceMemory &memory
     );
-    VkImageView create_image_view(VkImage image, VkFormat format);
+    VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect);
     void copy_buffer_to_image(VkBuffer buffer, VkImage image, uint32_t width, uint32_t height);
     void transition_image_layout(
         VkImage image,
@@ -229,6 +241,13 @@ private:
         VkPipelineStageFlags dst_stage
     );
     void create_sampler();
+    void create_depth_resources();
+    VkFormat Context::find_depth_format();
+    VkFormat Context::find_supported_format(
+        const std::vector<VkFormat>& candidates,
+        VkImageTiling tiling,
+        VkFormatFeatureFlags features
+    );
 
     static std::vector<char> read_all_bytes(const std::string& filename);
 };
