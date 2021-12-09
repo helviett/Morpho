@@ -30,9 +30,10 @@ VkResult CreateDebugUtilsMessengerEXT(
 }
 
 void Context::init(GLFWwindow* window) {
+    this->window = window;
     uint32_t wsi_extension_count;
     auto wsi_extensions = glfwGetRequiredInstanceExtensions(&wsi_extension_count);
-    std::vector<const char*> extensions(wsi_extensions, wsi_extensions);
+    std::vector<const char*> extensions(wsi_extensions, wsi_extensions + wsi_extension_count);
 
     std::vector<const char*> layers;
     if (enable_validation_layers) {
@@ -41,6 +42,9 @@ void Context::init(GLFWwindow* window) {
     }
 
     VK_CHECK(try_create_instance(extensions, layers), "Unable to create instance.")
+
+
+    create_surface();
 
     if (enable_validation_layers) {
         auto messenger_info = get_default_messenger_create_info();
@@ -56,6 +60,7 @@ void Context::init(GLFWwindow* window) {
 
     VK_CHECK(try_create_device(), "Unable to create logical device.")
     retrieve_queues();
+    create_swapchain();
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL Context::debug_callback(
@@ -77,6 +82,7 @@ VkPhysicalDevice Context::select_gpu()
     vkEnumeratePhysicalDevices(instance, &gpu_count, gpus.data());
     uint32_t best_score = 0;
     VkPhysicalDevice best_candidate = VK_NULL_HANDLE;
+    // TODO: Check for required device extensions support.
     for (auto candidate : gpus) {
         auto score = score_gpu(candidate);
         if (score > best_score) {
@@ -159,7 +165,9 @@ VkResult Context::try_create_device() {
     auto required = VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT;
     for (uint32_t i = 0; i < queue_families.size(); i++) {
         auto properties = queue_families[i];
-        if ((properties.queueFlags & required) == required) {
+        VkBool32 is_present_supported = false;
+        vkGetPhysicalDeviceSurfaceSupportKHR(gpu, i, surface, &is_present_supported);
+        if ((properties.queueFlags & required) == required && is_present_supported) {
             graphics_queue_family_index = i;
             break;
         }
@@ -169,10 +177,15 @@ VkResult Context::try_create_device() {
     queue_info.queueCount = 1;
     queue_info.queueFamilyIndex = graphics_queue_family_index;
 
+    std::array<const char *, 1> extensions = { "VK_KHR_swapchain", };
+
     VkDeviceCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-    info.pQueueCreateInfos = &queue_info;
     info.queueCreateInfoCount = 1;
+    info.pQueueCreateInfos = &queue_info;
+    info.enabledExtensionCount = extensions.size();
+    info.ppEnabledExtensionNames = extensions.data();
+
 
     return vkCreateDevice(gpu, &info, nullptr, &device);
 }
@@ -180,6 +193,85 @@ VkResult Context::try_create_device() {
 
 void Context::retrieve_queues() {
     vkGetDeviceQueue(device, graphics_queue_family_index, 0, &graphics_queue);
+}
+
+void Context::create_surface() {
+    VK_CHECK(
+        glfwCreateWindowSurface(instance, window, nullptr, &surface),
+        "Unable to create window surface."
+    )
+}
+
+
+void Context::create_swapchain() {
+    VkSurfaceCapabilitiesKHR capabilities;
+    vkGetPhysicalDeviceSurfaceCapabilitiesKHR(gpu, surface, &capabilities);
+
+    uint32_t format_count;
+    vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, nullptr);
+    std::vector<VkSurfaceFormatKHR> formats(format_count);
+    vkGetPhysicalDeviceSurfaceFormatsKHR(gpu, surface, &format_count, formats.data());
+    auto chosen_format = formats[0];
+    for (auto& format : formats) {
+        if (format.format == VK_FORMAT_B8G8R8_SRGB && format.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) {
+            chosen_format = format;
+        }
+    }
+
+    uint32_t modes_count;
+    vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, surface, &modes_count, nullptr);
+    std::vector<VkPresentModeKHR> present_modes(modes_count);
+    vkGetPhysicalDeviceSurfacePresentModesKHR(gpu, surface, &modes_count, present_modes.data());
+
+    uint32_t image_count = capabilities.minImageCount + 1;
+    if (capabilities.maxImageCount > 0 && image_count > capabilities.maxImageCount) {
+        image_count = capabilities.maxImageCount;
+    }
+
+    swapchain_extent = capabilities.currentExtent.width != UINT32_MAX
+        ? capabilities.currentExtent
+        : throw std::runtime_error("Unimplemented.");
+    swapchain_format = chosen_format.format;
+
+    VkSwapchainCreateInfoKHR info{};
+    info.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+    info.surface = surface;
+    info.imageExtent = swapchain_extent;
+    info.imageFormat = swapchain_format;
+    info.imageColorSpace = chosen_format.colorSpace;
+    info.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    info.minImageCount = image_count;
+    info.imageArrayLayers = 1;
+    info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+    info.preTransform = capabilities.currentTransform;
+    info.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+    info.clipped = VK_TRUE;
+    info.oldSwapchain = VK_NULL_HANDLE;
+
+    VK_CHECK(vkCreateSwapchainKHR(device, &info, nullptr, &swapchain), "Unable to create swapchain.")
+
+    uint32_t swapchain_image_count;
+    vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nullptr);
+    swapchain_images.resize(swapchain_image_count);
+    vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images.data());
+    swapchain_image_views.resize(swapchain_image_count);
+    for (int i = 0; i < swapchain_image_count; i++) {
+        VkImageViewCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        info.format = swapchain_format;
+        info.image = swapchain_images[i];
+        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+        info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+        info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+        info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
+        info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        info.subresourceRange.baseMipLevel = 0;
+        info.subresourceRange.levelCount = 1;
+        info.subresourceRange.baseArrayLayer = 0;
+        info.subresourceRange.layerCount = 1;
+        vkCreateImageView(device, &info, nullptr, &swapchain_image_views[i]);
+    }
 }
 
 }

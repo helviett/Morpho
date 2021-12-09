@@ -1,19 +1,11 @@
 #pragma once
 
-#define VK_USE_PLATFORM_WIN32_KHR
-#define GLM_FORCE_RADIANS
-#define GLM_FORCE_DEPTH_ZERO_TO_ONE
+#define VK_USE_PLATFORM_WIN32_KHR5
 #include <vulkan/vulkan.h>
 #include <GLFW/glfw3.h>
 #include <stdexcept>
 #include <vector>
 #include <iostream>
-#include <optional>
-#include <set>
-#include <fstream>
-#include <filesystem>
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
 #include <array>
 
 namespace Morpho::Vulkan {
@@ -71,6 +63,18 @@ private:
     static uint32_t score_gpu(VkPhysicalDevice gpu);
     VkResult try_create_device();
     void retrieve_queues();
+
+    // WSI stuff that will soon migrate somewhere
+    GLFWwindow* window;
+    VkSurfaceKHR surface;
+    VkSwapchainKHR swapchain;
+    std::vector<VkImage> swapchain_images;
+    std::vector<VkImageView> swapchain_image_views;
+    VkFormat swapchain_format;
+    VkExtent2D swapchain_extent;
+    void create_surface();
+    void create_swapchain();
+    // end of WSI stuff
 };
 
 }
