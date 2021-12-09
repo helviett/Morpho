@@ -2,6 +2,7 @@
 #include "application.hpp"
 #include <filesystem>
 #include <iostream>
+#include <vector>
 
 int main() {
     Application app;
