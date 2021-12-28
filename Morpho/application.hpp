@@ -17,4 +17,5 @@ private:
     void main_loop();
     void init_window();
     void cleanup();
+    void render_frame();
 };

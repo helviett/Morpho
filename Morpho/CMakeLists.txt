@@ -14,13 +14,18 @@ if (NOT Vulkan_FOUND)
     message ("Vulkan is not found")
 endif()
 
-# include_directories(Vulkan::Headers)
-
-file(GLOB_RECURSE BASE_SRC "*.cpp" "*.hpp" "*.h" )
-file(GLOB_RECURSE BASE_HEADERS "*.hpp" "*.h")
+set(SOURCE_FILES
+    morpho.cpp
+    application.hpp application.cpp
+    vulkan/command_buffer.hpp vulkan/command_buffer.cpp
+    vulkan/context.hpp vulkan/context.cpp
+    vulkan/render_pass_info.hpp vulkan/render_pass_info.cpp
+    vulkan/render_pass.hpp vulkan/render_pass.cpp
+    vulkan/framebuffer.hpp vulkan/framebuffer.cpp
+)
 
 # Add source to this project's executable.
-add_executable (Morpho ${BASE_SRC})
+add_executable (Morpho ${SOURCE_FILES})
 
 
 target_link_libraries(Morpho ${CONAN_LIBS} Vulkan::Vulkan)

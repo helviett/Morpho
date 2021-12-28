@@ -1,6 +1,4 @@
 #include "context.hpp"
-#define STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
 
 namespace Morpho::Vulkan {
 
@@ -272,6 +270,196 @@ void Context::create_swapchain() {
         info.subresourceRange.layerCount = 1;
         vkCreateImageView(device, &info, nullptr, &swapchain_image_views[i]);
     }
+}
+
+void Context::set_frame_context_count(uint32_t count) {
+    frame_context_count = count;
+    frame_context_index = 0;
+
+    VkCommandPoolCreateInfo command_pool_info{};
+    command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_info.queueFamilyIndex = graphics_queue_family_index;
+    command_pool_info.flags = VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT;
+
+    VkSemaphoreCreateInfo semaphore_info{};
+    semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    VkFenceCreateInfo fence_info{};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+    for (size_t i = 0; i < count; i++) {
+        auto& frame_context = frame_contexts[i];
+        vkCreateCommandPool(device, &command_pool_info, nullptr, &frame_context.command_pool);
+        vkCreateFence(device, &fence_info, nullptr, &frame_context.render_fence);
+        vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_context.present_semaphore);
+        vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_context.render_semaphore);
+    }
+}
+
+void Context::begin_frame() {
+    auto& frame_context = get_current_frame_context();
+    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, frame_context.present_semaphore, nullptr, &swapchain_image_index);
+    vkWaitForFences(device, 1, &frame_context.render_fence, true, 1000000000);
+    vkResetFences(device, 1, &frame_context.render_fence);
+    vkResetCommandPool(device, frame_context.command_pool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+    for (auto it = frame_context.destructors.rbegin(); it != frame_context.destructors.rend(); it++) {
+        (*it)();
+    }
+    frame_context.destructors.clear();
+}
+
+void Context::end_frame() {
+    VkPresentInfoKHR info{};
+    info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    info.pImageIndices = &swapchain_image_index;
+    info.pSwapchains = &swapchain;
+    info.swapchainCount = 1;
+    info.waitSemaphoreCount = 1;
+    info.pWaitSemaphores = &get_current_frame_context().render_semaphore;
+
+
+    vkQueuePresentKHR(graphics_queue, &info);
+    frame_context_index = (frame_context_index + 1) % frame_context_count;
+}
+
+CommandBuffer Context::acquire_command_buffer() {
+    VkCommandBuffer command_buffer;
+    VkCommandBufferAllocateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    info.commandPool = get_current_frame_context().command_pool;
+    info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    info.commandBufferCount = 1;
+
+    vkAllocateCommandBuffers(device, &info, &command_buffer);
+
+    VkCommandBufferBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+    vkBeginCommandBuffer(command_buffer, &begin_info);
+
+    CommandBuffer cmd(command_buffer, this);
+
+    return cmd;
+}
+
+
+Context::FrameContext& Context::get_current_frame_context() {
+    return frame_contexts[frame_context_index];
+}
+
+
+void Context::submit(CommandBuffer command_buffer) {
+    auto handle = command_buffer.get_vulkan_handle();
+    vkEndCommandBuffer(handle);
+    auto& frame_context = get_current_frame_context();
+    VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, };
+    VkSubmitInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    info.commandBufferCount = 1;
+    info.pCommandBuffers = &handle;
+    info.pWaitSemaphores = &frame_context.present_semaphore;
+    info.waitSemaphoreCount = 1;
+    info.pWaitDstStageMask = wait_stages;
+    info.pSignalSemaphores = &frame_context.render_semaphore;
+    info.signalSemaphoreCount = 1;
+
+    vkQueueSubmit(graphics_queue, 1, &info, frame_context.render_fence);
+}
+
+RenderPass Context::acquire_render_pass(RenderPassInfo& render_pass_info) {
+    VkAttachmentDescription desc{};
+    desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+    desc.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+    desc.format = swapchain_format;
+    desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+    desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+    desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+    desc.samples = VK_SAMPLE_COUNT_1_BIT;
+
+    VkAttachmentReference ref{};
+    ref.attachment = 0;
+    ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+
+    VkSubpassDescription subpass{};
+    subpass.colorAttachmentCount = 1;
+    subpass.pColorAttachments = &ref;
+
+    VkSubpassDependency dependency{};
+    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
+    dependency.dstSubpass = 0;
+    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.srcAccessMask = 0;
+    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    VkRenderPassCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    create_info.attachmentCount = 1;
+    create_info.pAttachments = &desc;
+    create_info.subpassCount = 1;
+    create_info.pSubpasses = &subpass;
+    create_info.dependencyCount = 1;
+    create_info.pDependencies = &dependency;
+
+    VkRenderPass render_pass;
+
+    VK_CHECK(vkCreateRenderPass(device, &create_info, nullptr, &render_pass), "Unable to create render pass.")
+
+    get_current_frame_context().destructors.push_back([=] {
+        vkDestroyRenderPass(device, render_pass, nullptr);
+    });
+
+    return RenderPass(render_pass);
+}
+
+Framebuffer Context::acquire_framebuffer(RenderPass render_pass, RenderPassInfo& render_pass_info) {
+    // Need abstraction over VkImage and VkImageView.
+    // For now assume image_view is swapchain image view.
+    VkFramebufferCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    info.attachmentCount = 1;
+    info.pAttachments = &render_pass_info.image_view;
+    info.width = swapchain_extent.width;
+    info.height = swapchain_extent.height;
+    info.layers = 1;
+    info.renderPass = render_pass.get_vulkan_handle();
+
+    VkFramebuffer framebuffer;
+    vkCreateFramebuffer(device, &info, nullptr, &framebuffer);
+
+    get_current_frame_context().destructors.push_back([=] {
+        vkDestroyFramebuffer(device, framebuffer, nullptr);
+    });
+
+    return Framebuffer(framebuffer);
+}
+
+void Context::begin_render_pass(CommandBuffer command_buffer, RenderPassInfo& info) {
+    auto cmd = command_buffer.get_vulkan_handle();
+    auto render_pass = acquire_render_pass(info);
+    auto framebuffer = acquire_framebuffer(render_pass, info);
+
+
+    VkRenderPassBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    begin_info.framebuffer = framebuffer.get_vulkan_handle();
+    begin_info.clearValueCount = 1;
+    begin_info.pClearValues = &info.clear_value;
+    begin_info.renderPass = render_pass.get_vulkan_handle();
+    begin_info.renderArea.offset = { 0, 0 };
+    begin_info.renderArea.extent = swapchain_extent;
+
+    vkCmdBeginRenderPass(cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+}
+
+void Context::end_render_pass(CommandBuffer command_buffer) {
+    vkCmdEndRenderPass(command_buffer.get_vulkan_handle());
+}
+
+VkImageView Context::get_swapchain_image_view() const {
+    return swapchain_image_views[swapchain_image_index];
 }
 
 }
