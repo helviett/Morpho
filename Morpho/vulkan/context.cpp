@@ -72,8 +72,7 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Context::debug_callback(
     return VK_FALSE;
 }
 
-VkPhysicalDevice Context::select_gpu()
-{
+VkPhysicalDevice Context::select_gpu() {
     uint32_t gpu_count;
     vkEnumeratePhysicalDevices(instance, &gpu_count, nullptr);
     std::vector<VkPhysicalDevice> gpus(gpu_count);
@@ -279,13 +278,14 @@ void Context::set_frame_context_count(uint32_t count) {
     VkCommandPoolCreateInfo command_pool_info{};
     command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
     command_pool_info.queueFamilyIndex = graphics_queue_family_index;
-    command_pool_info.flags = VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT;
+    command_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
 
     VkSemaphoreCreateInfo semaphore_info{};
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
 
     VkFenceCreateInfo fence_info{};
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
     for (size_t i = 0; i < count; i++) {
         auto& frame_context = frame_contexts[i];
@@ -436,30 +436,158 @@ Framebuffer Context::acquire_framebuffer(RenderPass render_pass, RenderPassInfo&
     return Framebuffer(framebuffer);
 }
 
-void Context::begin_render_pass(CommandBuffer command_buffer, RenderPassInfo& info) {
-    auto cmd = command_buffer.get_vulkan_handle();
-    auto render_pass = acquire_render_pass(info);
-    auto framebuffer = acquire_framebuffer(render_pass, info);
-
-
-    VkRenderPassBeginInfo begin_info{};
-    begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    begin_info.framebuffer = framebuffer.get_vulkan_handle();
-    begin_info.clearValueCount = 1;
-    begin_info.pClearValues = &info.clear_value;
-    begin_info.renderPass = render_pass.get_vulkan_handle();
-    begin_info.renderArea.offset = { 0, 0 };
-    begin_info.renderArea.extent = swapchain_extent;
-
-    vkCmdBeginRenderPass(cmd, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
-}
-
-void Context::end_render_pass(CommandBuffer command_buffer) {
-    vkCmdEndRenderPass(command_buffer.get_vulkan_handle());
-}
-
 VkImageView Context::get_swapchain_image_view() const {
     return swapchain_image_views[swapchain_image_index];
+}
+
+Shader Context::acquire_shader(char* data, uint32_t size) {
+    VkShaderModuleCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+    info.codeSize = size;
+    info.pCode = reinterpret_cast<const uint32_t*>(data);
+
+    VkShaderModule shader_module;
+    VK_CHECK(vkCreateShaderModule(device, &info, nullptr, &shader_module), "Unable to create shader module.")
+
+    return Shader(shader_module);
+}
+
+VkExtent2D Context::get_swapchain_extent() const {
+    return swapchain_extent;
+}
+
+Pipeline Context::acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, uint32_t subpass) {
+
+    VkPipelineShaderStageCreateInfo stages[5];
+    for (uint32_t i = 0; i < info.get_shader_count(); i++) {
+        auto shader = info.get_shader(i);
+        stages[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+        stages[i].pNext = nullptr;
+        stages[i].flags = 0;
+        stages[i].stage = Shader::shader_stage_to_vulkan(shader.get_stage());
+        stages[i].module = shader.get_shader_module();
+        stages[i].pName = "main"; // shader.get_entry_point().data();
+        stages[i].pSpecializationInfo = nullptr;
+    }
+
+    VkPipelineVertexInputStateCreateInfo vertex_input_state{};
+    vertex_input_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+
+    VkPipelineInputAssemblyStateCreateInfo input_assembly_state{};
+    input_assembly_state.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+    input_assembly_state.pNext = nullptr;
+    input_assembly_state.flags = 0;
+    input_assembly_state.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    input_assembly_state.primitiveRestartEnable = VK_FALSE;
+
+    // VkPipelineTessellationStateCreateInfo tesselation_state{};
+    VkViewport viewport{};
+    viewport.x = 0;
+    viewport.y = 0;
+    viewport.width = (float)swapchain_extent.width;
+    viewport.height = (float)swapchain_extent.height;
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    VkRect2D scissor{};
+    scissor.offset = {0, 0};
+    scissor.extent = swapchain_extent;
+
+    VkPipelineViewportStateCreateInfo viewport_state{};
+    viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
+    viewport_state.pNext = nullptr;
+    viewport_state.flags = 0;
+    viewport_state.viewportCount = 1;
+    viewport_state.pViewports = &viewport;
+    viewport_state.scissorCount = 1;
+    viewport_state.pScissors = &scissor;
+
+    VkPipelineRasterizationStateCreateInfo rasterization_state{};
+    rasterization_state.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+    rasterization_state.pNext = nullptr;
+    rasterization_state.flags = 0;
+    rasterization_state.depthClampEnable = VK_FALSE;
+    rasterization_state.rasterizerDiscardEnable = VK_FALSE;
+    rasterization_state.polygonMode = VK_POLYGON_MODE_FILL;
+    rasterization_state.lineWidth = 1.0f;
+    rasterization_state.cullMode = VK_CULL_MODE_BACK_BIT;
+    rasterization_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterization_state.depthBiasEnable = VK_FALSE;
+
+    VkPipelineMultisampleStateCreateInfo multisample_state{};
+    multisample_state.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+    multisample_state.pNext = nullptr;
+    multisample_state.flags = 0;
+    multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+    multisample_state.sampleShadingEnable = VK_FALSE;
+
+    // VkPipelineDepthStencilStateCreateInfo depth_stencil_state{};
+
+    // VkPipelineDynamicStateCreateInfo dynamic_state{};
+
+    VkPipelineColorBlendAttachmentState color_blend_attachment_state{};
+    color_blend_attachment_state.blendEnable = VK_FALSE;
+    color_blend_attachment_state.colorWriteMask =
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+        | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    VkPipelineColorBlendStateCreateInfo color_blend_state{};
+    color_blend_state.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+    color_blend_state.pNext = nullptr;
+    color_blend_state.flags = 0;
+    color_blend_state.logicOpEnable = VK_FALSE;
+    color_blend_state.logicOp = VK_LOGIC_OP_COPY;
+    color_blend_state.attachmentCount = 1;
+    color_blend_state.pAttachments = &color_blend_attachment_state;
+    color_blend_state.blendConstants[0] = 0.0f;
+    color_blend_state.blendConstants[1] = 0.0f;
+    color_blend_state.blendConstants[2] = 0.0f;
+    color_blend_state.blendConstants[3] = 0.0f;
+
+    VkPipelineLayoutCreateInfo layout_info{};
+    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    layout_info.pNext = nullptr;
+    layout_info.flags = 0;
+    layout_info.setLayoutCount = 0;
+    layout_info.pSetLayouts = nullptr;
+    layout_info.pushConstantRangeCount = 0;
+    layout_info.pPushConstantRanges = nullptr;
+
+    VkPipelineLayout layout;
+    vkCreatePipelineLayout(device, &layout_info, nullptr, &layout);
+
+
+    VkGraphicsPipelineCreateInfo pipeline_info{};
+    pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeline_info.stageCount = info.get_shader_count();
+    pipeline_info.pStages = stages;
+    pipeline_info.pVertexInputState = &vertex_input_state;
+    pipeline_info.pInputAssemblyState = &input_assembly_state;
+    pipeline_info.pTessellationState = nullptr;
+    pipeline_info.pViewportState = &viewport_state;
+    pipeline_info.pRasterizationState = &rasterization_state;
+    pipeline_info.pMultisampleState = &multisample_state;
+    pipeline_info.pDepthStencilState = nullptr;
+    pipeline_info.pColorBlendState = &color_blend_state;
+    pipeline_info.pDynamicState = nullptr;
+    pipeline_info.layout = layout;
+    pipeline_info.renderPass = render_pass.get_vulkan_handle();
+    pipeline_info.subpass = 0;
+    pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
+    pipeline_info.basePipelineIndex = 0;
+
+    VkPipeline pipeline;
+    vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline);
+
+    auto& current_frame_context = get_current_frame_context();
+    current_frame_context.destructors.push_back([=] {
+        vkDestroyPipeline(device, pipeline, nullptr);
+    });
+    current_frame_context.destructors.push_back([=] {
+        vkDestroyPipelineLayout(device, layout, nullptr);
+    });
+
+    return Pipeline(pipeline);
 }
 
 }

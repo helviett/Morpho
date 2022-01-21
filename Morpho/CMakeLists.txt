@@ -22,6 +22,9 @@ set(SOURCE_FILES
     vulkan/render_pass_info.hpp vulkan/render_pass_info.cpp
     vulkan/render_pass.hpp vulkan/render_pass.cpp
     vulkan/framebuffer.hpp vulkan/framebuffer.cpp
+    vulkan/shader.hpp vulkan/shader.cpp
+    vulkan/pipeline_info.hpp vulkan/pipeline_info.cpp
+    vulkan/pipeline.hpp vulkan/pipeline.cpp
 )
 
 # Add source to this project's executable.

@@ -12,6 +12,9 @@
 #include "render_pass_info.hpp"
 #include "render_pass.hpp"
 #include "framebuffer.hpp"
+#include "shader.hpp"
+#include "pipeline_info.hpp"
+#include "pipeline.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -48,11 +51,14 @@ public:
     void end_frame();
     CommandBuffer acquire_command_buffer();
     void submit(CommandBuffer command_buffer);
-    void begin_render_pass(CommandBuffer command_buffer, RenderPassInfo& info);
-    void end_render_pass(CommandBuffer command_buffer);
+    Shader acquire_shader(char* data, uint32_t size);
+    RenderPass acquire_render_pass(RenderPassInfo& render_pass_info);
+    Framebuffer acquire_framebuffer(RenderPass render_pass, RenderPassInfo& render_pass_info);
+    Pipeline acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, uint32_t subpass);
 
     // public WSI stuff
     VkImageView get_swapchain_image_view() const;
+    VkExtent2D get_swapchain_extent() const;
     // end of WSI stuff
 
 private:
@@ -94,8 +100,6 @@ private:
     VkResult try_create_device();
     void retrieve_queues();
     FrameContext& get_current_frame_context();
-    RenderPass acquire_render_pass(RenderPassInfo& render_pass_info);
-    Framebuffer acquire_framebuffer(RenderPass render_pass, RenderPassInfo& render_pass_info);
 
     // WSI stuff that will soon migrate somewhere
     GLFWwindow* window;
