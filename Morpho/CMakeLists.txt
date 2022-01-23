@@ -25,6 +25,7 @@ set(SOURCE_FILES
     vulkan/shader.hpp vulkan/shader.cpp
     vulkan/pipeline_info.hpp vulkan/pipeline_info.cpp
     vulkan/pipeline.hpp vulkan/pipeline.cpp
+    vulkan/vma.hpp vulkan/vma.cpp
 )
 
 # Add source to this project's executable.

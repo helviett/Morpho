@@ -59,6 +59,15 @@ void Context::init(GLFWwindow* window) {
     VK_CHECK(try_create_device(), "Unable to create logical device.")
     retrieve_queues();
     create_swapchain();
+
+    VmaAllocatorCreateInfo allocatorInfo = {};
+    allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_1;
+    allocatorInfo.physicalDevice = gpu;
+    allocatorInfo.device = device;
+    allocatorInfo.instance = instance;
+
+    VmaAllocator allocator;
+    vmaCreateAllocator(&allocatorInfo, &allocator);
 }
 
 VKAPI_ATTR VkBool32 VKAPI_CALL Context::debug_callback(

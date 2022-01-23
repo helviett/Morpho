@@ -15,6 +15,7 @@
 #include "shader.hpp"
 #include "pipeline_info.hpp"
 #include "pipeline.hpp"
+#include "vma.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -77,6 +78,7 @@ private:
     VkDevice device = VK_NULL_HANDLE;
     VkQueue graphics_queue;
     uint32_t graphics_queue_family_index;
+    VmaAllocator allocator;
 
     struct FrameContext {
         // Stays here for a while for simplicity
