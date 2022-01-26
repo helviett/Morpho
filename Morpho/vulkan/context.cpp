@@ -66,7 +66,6 @@ void Context::init(GLFWwindow* window) {
     allocatorInfo.device = device;
     allocatorInfo.instance = instance;
 
-    VmaAllocator allocator;
     vmaCreateAllocator(&allocatorInfo, &allocator);
 }
 
@@ -189,7 +188,7 @@ VkResult Context::try_create_device() {
     info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     info.queueCreateInfoCount = 1;
     info.pQueueCreateInfos = &queue_info;
-    info.enabledExtensionCount = extensions.size();
+    info.enabledExtensionCount = (uint32_t)extensions.size();
     info.ppEnabledExtensionNames = extensions.data();
 
 
@@ -261,7 +260,7 @@ void Context::create_swapchain() {
     swapchain_images.resize(swapchain_image_count);
     vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images.data());
     swapchain_image_views.resize(swapchain_image_count);
-    for (int i = 0; i < swapchain_image_count; i++) {
+    for (uint32_t i = 0; i < swapchain_image_count; i++) {
         VkImageViewCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         info.format = swapchain_format;
@@ -479,8 +478,19 @@ Pipeline Context::acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, 
         stages[i].pSpecializationInfo = nullptr;
     }
 
+    VkVertexInputAttributeDescription attributes_descriptions[PipelineInfo::MAXIMUM_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
+    for (uint32_t i = 0; i < info.get_attribute_description_count(); i++) {
+        attributes_descriptions[i] = info.get_vertex_attribute_description(i);
+    }
+
+    VkVertexInputBindingDescription binding_description = info.get_vertex_binding_description();
+
     VkPipelineVertexInputStateCreateInfo vertex_input_state{};
     vertex_input_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+    vertex_input_state.vertexBindingDescriptionCount = 1;
+    vertex_input_state.pVertexBindingDescriptions = &binding_description;
+    vertex_input_state.vertexAttributeDescriptionCount = info.get_attribute_description_count();
+    vertex_input_state.pVertexAttributeDescriptions = attributes_descriptions;
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly_state{};
     input_assembly_state.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -597,6 +607,32 @@ Pipeline Context::acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, 
     });
 
     return Pipeline(pipeline);
+}
+
+Buffer Context::acquire_buffer(uint32_t size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) {
+    VkBufferCreateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    info.size = size;
+    info.usage = buffer_usage;
+
+    VmaAllocationCreateInfo allocation_create_info{};
+    allocation_create_info.usage = memory_usage;
+
+    VkBuffer buffer;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocation_info;
+
+    vmaCreateBuffer(allocator, &info, &allocation_create_info, &buffer, &allocation, &allocation_info);
+
+    return Buffer(this, buffer, allocation, allocation_info);
+}
+
+void Context::map_memory(VmaAllocation allocation, void **map) {
+    vmaMapMemory(allocator, allocation, map);
+}
+
+void Context::unmap_memory(VmaAllocation allocation) {
+    vmaUnmapMemory(allocator, allocation);
 }
 
 }

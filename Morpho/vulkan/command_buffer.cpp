@@ -43,4 +43,10 @@ void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_
     vkCmdDraw(command_buffer, vertex_count, instance_count, first_vertex, first_instance);
 }
 
+void CommandBuffer::bind_vertex_buffer(Buffer vertex_buffer, uint32_t binding) {
+    auto buffer = vertex_buffer.get_buffer();
+    VkDeviceSize offset = 0;
+    vkCmdBindVertexBuffers(command_buffer, binding, 1, &buffer, &offset);
+}
+
 }

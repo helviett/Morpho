@@ -5,7 +5,12 @@
 #include <GLFW/glfw3.h>
 #include "vulkan/pipeline_info.hpp"
 #include "vulkan/context.hpp"
+#include <glm/glm.hpp>
 
+struct Vertex {
+    glm::vec2 position;
+    glm::vec3 color;
+};
 
 class Application {
 public:
@@ -15,6 +20,7 @@ private:
     GLFWwindow* window;
     Morpho::Vulkan::Context* context;
     Morpho::Vulkan::PipelineInfo pipeline_info;
+    Morpho::Vulkan::Buffer vertex_buffer;
 
 
     void main_loop();

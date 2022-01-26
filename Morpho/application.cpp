@@ -6,7 +6,7 @@ void Application::run() {
     init_window();
     context->init(window);
     context->set_frame_context_count(2);
-    std::cout << std::filesystem::current_path() << std::endl;
+
     auto vert_code = read_file("./assets/shaders/triangle.vert.spv");
     auto frag_code = read_file("./assets/shaders/triangle.frag.spv");
     auto vert_shader = context->acquire_shader(vert_code.data(), (uint32_t)vert_code.size());
@@ -17,6 +17,26 @@ void Application::run() {
     frag_shader.set_entry_point("main");
     pipeline_info.add_shader(vert_shader);
     pipeline_info.add_shader(frag_shader);
+
+    const std::vector<Vertex> vertices = {
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
+        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    };
+    pipeline_info.add_vertex_binding_description(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
+    pipeline_info.add_vertex_attribute_description(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position));
+    pipeline_info.add_vertex_attribute_description(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color));
+    vertex_buffer = context->acquire_buffer(
+        (uint32_t)sizeof(vertices[0]) * (uint32_t)vertices.size(),
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    vertex_buffer.update(vertices.data(), (uint32_t)sizeof(vertices[0]) * (uint32_t)vertices.size());
+
+
     main_loop();
 }
 
@@ -49,7 +69,8 @@ void Application::render_frame() {
     info.image_view = context->get_swapchain_image_view();
     cmd.begin_render_pass(info);
     cmd.bind_pipeline(pipeline_info);
-    cmd.draw(3, 1, 0, 0);
+    cmd.bind_vertex_buffer(vertex_buffer, 0);
+    cmd.draw(6, 1, 0, 0);
     cmd.end_render_pass();
 
     context->submit(cmd);

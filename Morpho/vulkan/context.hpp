@@ -16,6 +16,7 @@
 #include "pipeline_info.hpp"
 #include "pipeline.hpp"
 #include "vma.hpp"
+#include "buffer.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -56,6 +57,10 @@ public:
     RenderPass acquire_render_pass(RenderPassInfo& render_pass_info);
     Framebuffer acquire_framebuffer(RenderPass render_pass, RenderPassInfo& render_pass_info);
     Pipeline acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, uint32_t subpass);
+    // Keep Vulkan and VMA flags for now for simplicity and prototyping speed.
+    Buffer acquire_buffer(uint32_t size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
+    void map_memory(VmaAllocation allocation, void **map);
+    void unmap_memory(VmaAllocation allocation);
 
     // public WSI stuff
     VkImageView get_swapchain_image_view() const;
