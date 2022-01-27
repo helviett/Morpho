@@ -26,6 +26,7 @@ public:
         int32_t vertex_offset,
         uint32_t first_instance
     ) const;
+    void copy_buffer(Buffer source, Buffer destination, VkDeviceSize size) const;
 private:
     VkCommandBuffer command_buffer;
     RenderPass current_render_pass = RenderPass(VK_NULL_HANDLE);

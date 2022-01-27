@@ -609,7 +609,7 @@ Pipeline Context::acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, 
     return Pipeline(pipeline);
 }
 
-Buffer Context::acquire_buffer(uint32_t size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) {
+Buffer Context::acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) {
     VkBufferCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
     info.size = size;
@@ -633,6 +633,39 @@ void Context::map_memory(VmaAllocation allocation, void **map) {
 
 void Context::unmap_memory(VmaAllocation allocation) {
     vmaUnmapMemory(allocator, allocation);
+}
+
+Buffer Context::acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) {
+    auto& frame_context = get_current_frame_context();
+    auto buffer = acquire_buffer(size, buffer_usage, memory_usage);
+    frame_context.destructors.push_back([=] {
+        release_buffer(buffer);
+    });
+    return buffer;
+}
+
+void Context::release_buffer(Buffer buffer) {
+    vmaDestroyBuffer(allocator, buffer.get_buffer(), buffer.get_allocation());
+}
+
+
+void Context::flush(CommandBuffer command_buffer) {
+    auto handle = command_buffer.get_vulkan_handle();
+    vkEndCommandBuffer(handle);
+    VkSubmitInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    info.commandBufferCount = 1;
+    info.pCommandBuffers = &handle;
+
+    VkFence fence;
+    VkFenceCreateInfo fence_info{};
+    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    vkCreateFence(device, &fence_info, nullptr, &fence);
+
+    vkQueueSubmit(graphics_queue, 1, &info, fence);
+    vkWaitForFences(device, 1, &fence, VK_TRUE, 1000000000);
+
+    vkDestroyFence(device, fence, nullptr);
 }
 
 }

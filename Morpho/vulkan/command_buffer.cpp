@@ -63,4 +63,14 @@ void CommandBuffer::bind_index_buffer(Buffer index_buffer, VkIndexType index_typ
     vkCmdBindIndexBuffer(command_buffer, buffer, offset, index_type);
 }
 
+void CommandBuffer::copy_buffer(Buffer source, Buffer destination, VkDeviceSize size) const {
+    auto dst = destination.get_buffer();
+    auto src = source.get_buffer();
+    VkBufferCopy region;
+    region.srcOffset = 0;
+    region.dstOffset = 0;
+    region.size = size;
+    vkCmdCopyBuffer(command_buffer, src, dst, 1, &region);
+}
+
 }

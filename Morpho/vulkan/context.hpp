@@ -53,12 +53,15 @@ public:
     void end_frame();
     CommandBuffer acquire_command_buffer();
     void submit(CommandBuffer command_buffer);
+    void flush(CommandBuffer command_buffer);
     Shader acquire_shader(char* data, uint32_t size);
     RenderPass acquire_render_pass(RenderPassInfo& render_pass_info);
     Framebuffer acquire_framebuffer(RenderPass render_pass, RenderPassInfo& render_pass_info);
     Pipeline acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, uint32_t subpass);
     // Keep Vulkan and VMA flags for now for simplicity and prototyping speed.
-    Buffer acquire_buffer(uint32_t size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
+    Buffer acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
+    Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
+    void release_buffer(Buffer buffer);
     void map_memory(VmaAllocation allocation, void **map);
     void unmap_memory(VmaAllocation allocation);
 

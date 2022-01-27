@@ -8,7 +8,7 @@ Buffer::Buffer(): context(nullptr), buffer(VK_NULL_HANDLE), allocation(VK_NULL_H
 Buffer::Buffer(Context* context, VkBuffer buffer, VmaAllocation allocation, VmaAllocationInfo allocation_info)
     : context(context), buffer(buffer), allocation(allocation), allocation_info(allocation_info) { }
 
-void Buffer::update(const void* data, uint32_t size) {
+void Buffer::update(const void* data, VkDeviceSize size) {
     void* mapped;
     context->map_memory(allocation, &mapped);
     memcpy(mapped, data, size);
@@ -17,6 +17,10 @@ void Buffer::update(const void* data, uint32_t size) {
 
 VkBuffer Buffer::get_buffer() const {
     return buffer;
+}
+
+VmaAllocation Buffer::get_allocation() const {
+    return allocation;
 }
 
 }
