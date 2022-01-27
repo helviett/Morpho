@@ -21,6 +21,7 @@ private:
     Morpho::Vulkan::Context* context;
     Morpho::Vulkan::PipelineInfo pipeline_info;
     Morpho::Vulkan::Buffer vertex_buffer;
+    Morpho::Vulkan::Buffer index_buffer;
 
 
     void main_loop();

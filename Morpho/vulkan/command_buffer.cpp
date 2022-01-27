@@ -43,10 +43,24 @@ void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_
     vkCmdDraw(command_buffer, vertex_count, instance_count, first_vertex, first_instance);
 }
 
-void CommandBuffer::bind_vertex_buffer(Buffer vertex_buffer, uint32_t binding) {
+void CommandBuffer::draw_indexed(
+    uint32_t index_count,
+    uint32_t instance_count,
+    uint32_t first_index,
+    int32_t vertex_offset,
+    uint32_t first_instance
+) const {
+    vkCmdDrawIndexed(command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+}
+
+void CommandBuffer::bind_vertex_buffer(Buffer vertex_buffer, uint32_t binding, VkDeviceSize offset) {
     auto buffer = vertex_buffer.get_buffer();
-    VkDeviceSize offset = 0;
     vkCmdBindVertexBuffers(command_buffer, binding, 1, &buffer, &offset);
+}
+
+void CommandBuffer::bind_index_buffer(Buffer index_buffer, VkIndexType index_type, VkDeviceSize offset) {
+    auto buffer = index_buffer.get_buffer();
+    vkCmdBindIndexBuffer(command_buffer, buffer, offset, index_type);
 }
 
 }

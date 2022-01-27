@@ -22,9 +22,11 @@ void Application::run() {
         {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
         {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
         {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
         {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
-        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
+    };
+    const std::vector<uint16_t> indices = {
+        0, 1, 2,
+        2, 3, 0,
     };
     pipeline_info.add_vertex_binding_description(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
     pipeline_info.add_vertex_attribute_description(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position));
@@ -35,7 +37,12 @@ void Application::run() {
         VMA_MEMORY_USAGE_CPU_TO_GPU
     );
     vertex_buffer.update(vertices.data(), (uint32_t)sizeof(vertices[0]) * (uint32_t)vertices.size());
-
+    index_buffer = context->acquire_buffer(
+        (uint32_t)(sizeof(indices[0]) * indices.size()),
+        VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    index_buffer.update(indices.data(), (uint32_t)(sizeof(indices[0]) * indices.size()));
 
     main_loop();
 }
@@ -70,7 +77,8 @@ void Application::render_frame() {
     cmd.begin_render_pass(info);
     cmd.bind_pipeline(pipeline_info);
     cmd.bind_vertex_buffer(vertex_buffer, 0);
-    cmd.draw(6, 1, 0, 0);
+    cmd.bind_index_buffer(index_buffer, VK_INDEX_TYPE_UINT16);
+    cmd.draw_indexed(6, 1, 0, 0, 0);
     cmd.end_render_pass();
 
     context->submit(cmd);
