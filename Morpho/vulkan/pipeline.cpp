@@ -2,12 +2,14 @@
 
 namespace Morpho::Vulkan {
 
+Pipeline::Pipeline(): pipeline(VK_NULL_HANDLE) { }
+
 Pipeline::Pipeline(VkPipeline pipeline) {
-    handle = pipeline;
+    this->pipeline = pipeline;
 }
 
-VkPipeline Pipeline::get_vulkan_handle() const {
-    return handle;
+VkPipeline Pipeline::get_pipeline() const {
+    return pipeline;
 }
 
 }

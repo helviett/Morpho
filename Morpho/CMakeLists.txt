@@ -23,10 +23,15 @@ set(SOURCE_FILES
     vulkan/render_pass.hpp vulkan/render_pass.cpp
     vulkan/framebuffer.hpp vulkan/framebuffer.cpp
     vulkan/shader.hpp vulkan/shader.cpp
-    vulkan/pipeline_info.hpp vulkan/pipeline_info.cpp
+    vulkan/pipeline_state.hpp vulkan/pipeline_state.cpp
     vulkan/pipeline.hpp vulkan/pipeline.cpp
     vulkan/vma.hpp vulkan/vma.cpp
     vulkan/buffer.hpp vulkan/buffer.cpp
+    vulkan/resource_binding.hpp vulkan/resource_binding.cpp
+    vulkan/resource_set.hpp vulkan/resource_set.cpp
+    vulkan/pipeline_layout.hpp vulkan/pipeline_layout.cpp
+    vulkan/descriptor_set.hpp vulkan/descriptor_set.cpp
+    vulkan/descriptor_set_layout.hpp vulkan/descriptor_set_layout.cpp
 )
 
 # Add source to this project's executable.

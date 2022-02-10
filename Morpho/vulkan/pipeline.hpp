@@ -5,11 +5,12 @@ namespace Morpho::Vulkan {
 
 class Pipeline {
 public:
+    Pipeline();
     Pipeline(VkPipeline pipeline);
 
-    VkPipeline get_vulkan_handle() const;
+    VkPipeline get_pipeline() const;
 private:
-    VkPipeline handle;
+    VkPipeline pipeline;
 };
 
 }

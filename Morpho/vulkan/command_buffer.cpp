@@ -34,12 +34,8 @@ void CommandBuffer::end_render_pass() {
     current_render_pass = RenderPass(VK_NULL_HANDLE);
 }
 
-void CommandBuffer::bind_pipeline(PipelineInfo& info) {
-    auto pipeline = context->acquire_pipeline(info, current_render_pass, 0);
-    vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.get_vulkan_handle());
-}
-
-void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) const {
+void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) {
+    flush();
     vkCmdDraw(command_buffer, vertex_count, instance_count, first_vertex, first_instance);
 }
 
@@ -49,7 +45,8 @@ void CommandBuffer::draw_indexed(
     uint32_t first_index,
     int32_t vertex_offset,
     uint32_t first_instance
-) const {
+) {
+    flush();
     vkCmdDrawIndexed(command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 
@@ -72,5 +69,70 @@ void CommandBuffer::copy_buffer(Buffer source, Buffer destination, VkDeviceSize 
     region.size = size;
     vkCmdCopyBuffer(command_buffer, src, dst, 1, &region);
 }
+
+void CommandBuffer::add_shader(const Shader shader) {
+    pipeline_state.add_shader(shader);
+}
+
+void CommandBuffer::add_vertex_attribute_description(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset) {
+    pipeline_state.add_vertex_attribute_description(binding, location, format, offset);
+}
+
+void CommandBuffer::add_vertex_binding_description(uint32_t binding, uint32_t stride, VkVertexInputRate input_rate) {
+    pipeline_state.add_vertex_binding_description(binding, stride, input_rate);
+}
+
+void CommandBuffer::set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range) {
+    sets[set].set_uniform_buffer(binding, buffer, offset, range);
+}
+
+void CommandBuffer::flush_pipeline() {
+    bool is_pipeline_layout_dirty = false;
+    for (uint32_t i = 0; i < 4; i++) {
+        is_pipeline_layout_dirty |= sets[i].get_is_layout_dirty();
+    }
+    if (is_pipeline_layout_dirty) {
+        PipelineLayout pipeline_layout = context->acquire_pipeline_layout(sets);
+        pipeline_state.set_pipeline_layout(pipeline_layout);
+    }
+    if (pipeline_state.get_and_clear_is_dirty()) {
+        pipeline = context->acquire_pipeline(pipeline_state, current_render_pass, 0);
+        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.get_pipeline());
+    }
+}
+
+void CommandBuffer::flush_descriptor_sets() {
+    bool is_pipeline_layout_dirty = false;
+    for (uint32_t i = 0; i < 4; i++) {
+        is_pipeline_layout_dirty |= sets[i].get_is_layout_dirty();
+    }
+    for (uint32_t i = 0; i < 4; i++) {
+        if (is_pipeline_layout_dirty || descriptor_sets[i].get_descriptor_set() == VK_NULL_HANDLE) {
+            descriptor_sets[i] = context->acquire_descriptor_set(pipeline_state.get_pipeline_layout().get_descriptor_set_layout(i));
+            sets[i].mark_all_dirty();
+        }
+        if (sets[i].get_is_contents_dirty()) {
+            context->update_descriptor_set(descriptor_sets[i], sets[i]);
+            sets[i].clear_dirty_flags();
+        }
+        auto descriptor_set = descriptor_sets[i].get_descriptor_set();
+        vkCmdBindDescriptorSets(
+            command_buffer,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            pipeline_state.get_pipeline_layout().get_pipeline_layout(),
+            i,
+            1,
+            &descriptor_set,
+            0,
+            nullptr
+        );
+    }
+}
+
+void CommandBuffer::flush() {
+    flush_pipeline();
+    flush_descriptor_sets();
+}
+
 
 }

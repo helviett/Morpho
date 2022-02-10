@@ -464,11 +464,11 @@ VkExtent2D Context::get_swapchain_extent() const {
     return swapchain_extent;
 }
 
-Pipeline Context::acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, uint32_t subpass) {
+Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& render_pass, uint32_t subpass) {
 
     VkPipelineShaderStageCreateInfo stages[5];
-    for (uint32_t i = 0; i < info.get_shader_count(); i++) {
-        auto shader = info.get_shader(i);
+    for (uint32_t i = 0; i < pipeline_state.get_shader_count(); i++) {
+        auto shader = pipeline_state.get_shader(i);
         stages[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[i].pNext = nullptr;
         stages[i].flags = 0;
@@ -478,18 +478,18 @@ Pipeline Context::acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, 
         stages[i].pSpecializationInfo = nullptr;
     }
 
-    VkVertexInputAttributeDescription attributes_descriptions[PipelineInfo::MAXIMUM_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
-    for (uint32_t i = 0; i < info.get_attribute_description_count(); i++) {
-        attributes_descriptions[i] = info.get_vertex_attribute_description(i);
+    VkVertexInputAttributeDescription attributes_descriptions[PipelineState::MAX_VERTEX_ATTRIBUTE_DESCRIPTIONS];
+    for (uint32_t i = 0; i < pipeline_state.get_attribute_description_count(); i++) {
+        attributes_descriptions[i] = pipeline_state.get_vertex_attribute_description(i);
     }
 
-    VkVertexInputBindingDescription binding_description = info.get_vertex_binding_description();
+    VkVertexInputBindingDescription binding_description = pipeline_state.get_vertex_binding_description();
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state{};
     vertex_input_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
     vertex_input_state.vertexBindingDescriptionCount = 1;
     vertex_input_state.pVertexBindingDescriptions = &binding_description;
-    vertex_input_state.vertexAttributeDescriptionCount = info.get_attribute_description_count();
+    vertex_input_state.vertexAttributeDescriptionCount = pipeline_state.get_attribute_description_count();
     vertex_input_state.pVertexAttributeDescriptions = attributes_descriptions;
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly_state{};
@@ -563,22 +563,9 @@ Pipeline Context::acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, 
     color_blend_state.blendConstants[2] = 0.0f;
     color_blend_state.blendConstants[3] = 0.0f;
 
-    VkPipelineLayoutCreateInfo layout_info{};
-    layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    layout_info.pNext = nullptr;
-    layout_info.flags = 0;
-    layout_info.setLayoutCount = 0;
-    layout_info.pSetLayouts = nullptr;
-    layout_info.pushConstantRangeCount = 0;
-    layout_info.pPushConstantRanges = nullptr;
-
-    VkPipelineLayout layout;
-    vkCreatePipelineLayout(device, &layout_info, nullptr, &layout);
-
-
     VkGraphicsPipelineCreateInfo pipeline_info{};
     pipeline_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-    pipeline_info.stageCount = info.get_shader_count();
+    pipeline_info.stageCount = pipeline_state.get_shader_count();
     pipeline_info.pStages = stages;
     pipeline_info.pVertexInputState = &vertex_input_state;
     pipeline_info.pInputAssemblyState = &input_assembly_state;
@@ -589,7 +576,7 @@ Pipeline Context::acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, 
     pipeline_info.pDepthStencilState = nullptr;
     pipeline_info.pColorBlendState = &color_blend_state;
     pipeline_info.pDynamicState = nullptr;
-    pipeline_info.layout = layout;
+    pipeline_info.layout = pipeline_state.get_pipeline_layout().get_pipeline_layout();
     pipeline_info.renderPass = render_pass.get_vulkan_handle();
     pipeline_info.subpass = 0;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
@@ -601,9 +588,6 @@ Pipeline Context::acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, 
     auto& current_frame_context = get_current_frame_context();
     current_frame_context.destructors.push_back([=] {
         vkDestroyPipeline(device, pipeline, nullptr);
-    });
-    current_frame_context.destructors.push_back([=] {
-        vkDestroyPipelineLayout(device, layout, nullptr);
     });
 
     return Pipeline(pipeline);
@@ -666,6 +650,118 @@ void Context::flush(CommandBuffer command_buffer) {
     vkWaitForFences(device, 1, &fence, VK_TRUE, 1000000000);
 
     vkDestroyFence(device, fence, nullptr);
+}
+
+DescriptorSet Context::acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout) {
+    VkDescriptorPoolSize pool_size{};
+    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_size.descriptorCount = 100;
+    VkDescriptorPoolCreateInfo pool_info{};
+    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = &pool_size;
+    pool_info.maxSets = 100;
+    VkDescriptorPool descriptor_pool;
+    vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool);
+    get_current_frame_context().destructors.push_back([=] {
+        vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
+    });
+    VkDescriptorSetAllocateInfo allocate_info{};
+    allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocate_info.descriptorPool = descriptor_pool;
+    auto set_layout = descriptor_set_layout.get_descriptor_set_layout();
+    allocate_info.pSetLayouts = &set_layout;
+    allocate_info.descriptorSetCount = 1;
+
+    VkDescriptorSet descriptor_set;
+    vkAllocateDescriptorSets(device, &allocate_info, &descriptor_set);
+
+    return DescriptorSet(descriptor_set);
+}
+
+void Context::update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set) {
+    auto descriptor_set_handle = descriptor_set.get_descriptor_set();
+    VkWriteDescriptorSet writes[16];
+    uint32_t current_write = 0;
+    for (uint32_t i = 0; i < 16; i++) {
+        const auto& binding = resource_set.get_binding(i);
+        auto& write = writes[current_write];
+        write = {};
+        switch (binding.get_resource_type())
+        {
+        case ResourceType::None:
+            continue;
+        case ResourceType::UniformBuffer:
+            write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            write.pBufferInfo = binding.get_buffer_info();
+            break;
+        default:
+            throw std::runtime_error("Not implemented exception.");
+        }
+        write.dstSet = descriptor_set_handle;
+        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write.dstBinding = i;
+        write.dstArrayElement = 0;
+        write.descriptorCount = 1;
+
+        current_write++;
+    }
+    if (current_write != 0) {
+        vkUpdateDescriptorSets(device, current_write, writes, 0, nullptr);
+    }
+}
+
+PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[4]) {
+    DescriptorSetLayout descriptor_set_layouts[4];
+    VkDescriptorSetLayout descriptor_set_layout_handles[4];
+    VkPipelineLayout pipeline_layout;
+    VkPipelineLayoutCreateInfo pipeline_layout_info{};
+    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+    pipeline_layout_info.setLayoutCount = 4;
+    pipeline_layout_info.pSetLayouts = descriptor_set_layout_handles;
+
+    for (int i = 0; i < 4; i++) {
+        auto& set = sets[i];
+        VkDescriptorSetLayoutCreateInfo layout_info{};
+        layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        VkDescriptorSetLayoutBinding bindings[16];
+        layout_info.pBindings = bindings;
+        layout_info.flags = 0;
+        uint32_t current_binding = 0;
+        for (uint32_t j = 0; j < 16; j++) {
+            auto binding = set.get_binding(j);
+            switch (binding.get_resource_type())
+            {
+            case ResourceType::None:
+                continue;
+            case ResourceType::UniformBuffer:
+                bindings[current_binding].binding = current_binding;
+                bindings[current_binding].descriptorCount = 1;
+                bindings[current_binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                // TODO: Dehardcode.
+                bindings[current_binding].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+
+            default:
+                break;
+            }
+            bindings[current_binding].binding = j;
+            bindings[current_binding].pImmutableSamplers = nullptr;
+            current_binding++;
+        }
+        layout_info.bindingCount = current_binding;
+        VkDescriptorSetLayout descriptor_set_layout;
+        vkCreateDescriptorSetLayout(device, &layout_info, nullptr, &descriptor_set_layout);
+        get_current_frame_context().destructors.push_back([=] {
+            vkDestroyDescriptorSetLayout(device, descriptor_set_layout, nullptr);
+        });
+        descriptor_set_layout_handles[i] = descriptor_set_layout;
+        descriptor_set_layouts[i] = DescriptorSetLayout(descriptor_set_layout);
+    }
+    vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &pipeline_layout);
+    get_current_frame_context().destructors.push_back([=] {
+        vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
+    });
+    return PipelineLayout(pipeline_layout, descriptor_set_layouts);
 }
 
 }

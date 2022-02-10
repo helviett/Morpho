@@ -13,7 +13,7 @@
 #include "render_pass.hpp"
 #include "framebuffer.hpp"
 #include "shader.hpp"
-#include "pipeline_info.hpp"
+#include "pipeline_state.hpp"
 #include "pipeline.hpp"
 #include "vma.hpp"
 #include "buffer.hpp"
@@ -57,13 +57,17 @@ public:
     Shader acquire_shader(char* data, uint32_t size);
     RenderPass acquire_render_pass(RenderPassInfo& render_pass_info);
     Framebuffer acquire_framebuffer(RenderPass render_pass, RenderPassInfo& render_pass_info);
-    Pipeline acquire_pipeline(PipelineInfo &info, RenderPass& render_pass, uint32_t subpass);
+    Pipeline acquire_pipeline(PipelineState &info, RenderPass& render_pass, uint32_t subpass);
     // Keep Vulkan and VMA flags for now for simplicity and prototyping speed.
     Buffer acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
     Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
     void release_buffer(Buffer buffer);
     void map_memory(VmaAllocation allocation, void **map);
     void unmap_memory(VmaAllocation allocation);
+    PipelineLayout acquire_pipeline_layout(ResourceSet sets[4]);
+    DescriptorSet acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout);
+    void update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set);
+
 
     // public WSI stuff
     VkImageView get_swapchain_image_view() const;

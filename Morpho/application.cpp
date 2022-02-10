@@ -9,14 +9,13 @@ void Application::run() {
 
     auto vert_code = read_file("./assets/shaders/triangle.vert.spv");
     auto frag_code = read_file("./assets/shaders/triangle.frag.spv");
-    auto vert_shader = context->acquire_shader(vert_code.data(), (uint32_t)vert_code.size());
+    vert_shader = context->acquire_shader(vert_code.data(), (uint32_t)vert_code.size());
     vert_shader.set_stage(Morpho::Vulkan::ShaderStage::Vertex);
     vert_shader.set_entry_point("main");
-    auto frag_shader = context->acquire_shader(frag_code.data(), (uint32_t)frag_code.size());
+    frag_shader = context->acquire_shader(frag_code.data(), (uint32_t)frag_code.size());
     frag_shader.set_stage(Morpho::Vulkan::ShaderStage::Fragment);
     frag_shader.set_entry_point("main");
-    pipeline_info.add_shader(vert_shader);
-    pipeline_info.add_shader(frag_shader);
+
 
     const std::vector<Vertex> vertices = {
         {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
@@ -28,9 +27,6 @@ void Application::run() {
         0, 1, 2,
         2, 3, 0,
     };
-    pipeline_info.add_vertex_binding_description(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
-    pipeline_info.add_vertex_attribute_description(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position));
-    pipeline_info.add_vertex_attribute_description(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color));
     auto vertex_buffer_size = (VkDeviceSize)(sizeof(vertices[0]) * vertices.size());
     auto staging_vertex_buffer = context->acquire_staging_buffer(
         vertex_buffer_size,
@@ -84,16 +80,52 @@ void Application::set_graphics_context(Morpho::Vulkan::Context* context) {
 }
 
 void Application::render_frame() {
+    static auto startTime = std::chrono::high_resolution_clock::now();
+    auto currentTime = std::chrono::high_resolution_clock::now();
+    float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
+
     context->begin_frame();
     auto cmd = context->acquire_command_buffer();
+    cmd.add_shader(vert_shader);
+    cmd.add_shader(frag_shader);
+    cmd.add_vertex_binding_description(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
+    cmd.add_vertex_attribute_description(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position));
+    cmd.add_vertex_attribute_description(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color));
 
-    Morpho::Vulkan::RenderPassInfo info;
-    info.clear_value = { 0.0f, 0.0f, 0.0f, };
-    info.image_view = context->get_swapchain_image_view();
-    cmd.begin_render_pass(info);
-    cmd.bind_pipeline(pipeline_info);
+
+    Morpho::Vulkan::RenderPassInfo render_pass;
+    render_pass.clear_value = { 0.0f, 0.0f, 0.0f, };
+    render_pass.image_view = context->get_swapchain_image_view();
+    cmd.begin_render_pass(render_pass);
+    auto uniform1 = context->acquire_staging_buffer(
+        sizeof(UniformBufferObject),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    auto uniform2 = context->acquire_staging_buffer(
+        sizeof(UniformBufferObject),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    void* data;
+    context->map_memory(uniform1.get_allocation(), &data);
+    auto swapchain_extent = context->get_swapchain_extent();
+    UniformBufferObject ubo{};
+    ubo.model = glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    ubo.proj = glm::perspective(glm::radians(45.0f), swapchain_extent.width / (float) swapchain_extent.height, 0.1f, 10.0f);
+    memcpy(data, &ubo, sizeof(ubo));
+    context->unmap_memory(uniform1.get_allocation());
+    ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 1.0f))
+        * glm::rotate(glm::mat4(1.0f), time * glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+    context->map_memory(uniform2.get_allocation(), &data);
+    memcpy(data, &ubo, sizeof(ubo));
+    context->unmap_memory(uniform2.get_allocation());
+    cmd.set_uniform_buffer(1, 0, uniform1, 0, sizeof(UniformBufferObject));
     cmd.bind_vertex_buffer(vertex_buffer, 0);
     cmd.bind_index_buffer(index_buffer, VK_INDEX_TYPE_UINT16);
+    cmd.draw_indexed(6, 1, 0, 0, 0);
+    cmd.set_uniform_buffer(1, 0, uniform2, 0, sizeof(UniformBufferObject));
     cmd.draw_indexed(6, 1, 0, 0, 0);
     cmd.end_render_pass();
 
