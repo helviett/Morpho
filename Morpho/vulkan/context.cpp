@@ -478,7 +478,7 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
         stages[i].pSpecializationInfo = nullptr;
     }
 
-    VkVertexInputAttributeDescription attributes_descriptions[PipelineState::MAX_VERTEX_ATTRIBUTE_DESCRIPTIONS];
+    VkVertexInputAttributeDescription attributes_descriptions[Limits::MAX_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
     for (uint32_t i = 0; i < pipeline_state.get_attribute_description_count(); i++) {
         attributes_descriptions[i] = pipeline_state.get_vertex_attribute_description(i);
     }
@@ -681,9 +681,9 @@ DescriptorSet Context::acquire_descriptor_set(DescriptorSetLayout descriptor_set
 
 void Context::update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set) {
     auto descriptor_set_handle = descriptor_set.get_descriptor_set();
-    VkWriteDescriptorSet writes[16];
+    VkWriteDescriptorSet writes[Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT];
     uint32_t current_write = 0;
-    for (uint32_t i = 0; i < 16; i++) {
+    for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT; i++) {
         const auto& binding = resource_set.get_binding(i);
         auto& write = writes[current_write];
         write = {};
@@ -711,24 +711,24 @@ void Context::update_descriptor_set(DescriptorSet descriptor_set, ResourceSet re
     }
 }
 
-PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[4]) {
-    DescriptorSetLayout descriptor_set_layouts[4];
-    VkDescriptorSetLayout descriptor_set_layout_handles[4];
+PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT]) {
+    DescriptorSetLayout descriptor_set_layouts[Limits::MAX_DESCRIPTOR_SET_COUNT];
+    VkDescriptorSetLayout descriptor_set_layout_handles[Limits::MAX_DESCRIPTOR_SET_COUNT];
     VkPipelineLayout pipeline_layout;
     VkPipelineLayoutCreateInfo pipeline_layout_info{};
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount = 4;
+    pipeline_layout_info.setLayoutCount = Limits::MAX_DESCRIPTOR_SET_COUNT;
     pipeline_layout_info.pSetLayouts = descriptor_set_layout_handles;
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
         auto& set = sets[i];
         VkDescriptorSetLayoutCreateInfo layout_info{};
         layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        VkDescriptorSetLayoutBinding bindings[16];
+        VkDescriptorSetLayoutBinding bindings[Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT];
         layout_info.pBindings = bindings;
         layout_info.flags = 0;
         uint32_t current_binding = 0;
-        for (uint32_t j = 0; j < 16; j++) {
+        for (uint32_t j = 0; j < Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT; j++) {
             auto binding = set.get_binding(j);
             switch (binding.get_resource_type())
             {

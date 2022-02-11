@@ -6,9 +6,9 @@ PipelineLayout::PipelineLayout(): pipeline_layout(VK_NULL_HANDLE) { }
 
 PipelineLayout::PipelineLayout(
     VkPipelineLayout pipeline_layout,
-    DescriptorSetLayout descriptor_set_layouts[4]
+    DescriptorSetLayout descriptor_set_layouts[Limits::MAX_DESCRIPTOR_SET_COUNT]
 ): pipeline_layout(pipeline_layout) {
-    for (uint32_t i = 0; i < 4; i++) {
+    for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
         this->descriptor_set_layouts[i] = descriptor_set_layouts[i];
     }
 }

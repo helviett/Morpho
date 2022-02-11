@@ -4,6 +4,7 @@
 #include "pipeline.hpp"
 #include "buffer.hpp"
 #include "pipeline_layout.hpp"
+#include "limits.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -24,20 +25,14 @@ public:
     PipelineLayout get_pipeline_layout() const;
     bool get_is_dirty() const;
     bool get_and_clear_is_dirty();
-
-
-    static const int MAX_VERTEX_ATTRIBUTE_DESCRIPTIONS = 10;
-    static const int MAX_DESCRIPTOR_SETS = 4;
-    static const int MAX_DESCRIPTOR_SET_BINDINGS = 16;
 private:
     bool is_dirty = true;
     Shader shaders[2];
     uint32_t shader_count = 0;
-    VkVertexInputAttributeDescription attribute_descriptions[MAX_VERTEX_ATTRIBUTE_DESCRIPTIONS];
+    VkVertexInputAttributeDescription attribute_descriptions[Limits::MAX_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
     uint32_t attribute_description_count = 0;
     VkVertexInputBindingDescription binding_description;
     PipelineLayout pipeline_layout;
 };
 
 }
-

@@ -32,6 +32,7 @@ set(SOURCE_FILES
     vulkan/pipeline_layout.hpp vulkan/pipeline_layout.cpp
     vulkan/descriptor_set.hpp vulkan/descriptor_set.cpp
     vulkan/descriptor_set_layout.hpp vulkan/descriptor_set_layout.cpp
+    vulkan/limits.hpp vulkan/limits.cpp
 )
 
 # Add source to this project's executable.

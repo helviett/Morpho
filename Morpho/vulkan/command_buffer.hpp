@@ -8,6 +8,7 @@
 #include "resource_set.hpp"
 #include "pipeline.hpp"
 #include "descriptor_set.hpp"
+#include "limits.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -42,8 +43,8 @@ private:
     PipelineState pipeline_state;
     Pipeline pipeline;
     Context* context;
-    ResourceSet sets[4];
-    DescriptorSet descriptor_sets[4];
+    ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT];
+    DescriptorSet descriptor_sets[Limits::MAX_DESCRIPTOR_SET_COUNT];
 
     void flush_pipeline();
     void flush_descriptor_sets();

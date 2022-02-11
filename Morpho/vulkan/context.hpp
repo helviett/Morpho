@@ -17,6 +17,7 @@
 #include "pipeline.hpp"
 #include "vma.hpp"
 #include "buffer.hpp"
+#include "limits.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -64,7 +65,7 @@ public:
     void release_buffer(Buffer buffer);
     void map_memory(VmaAllocation allocation, void **map);
     void unmap_memory(VmaAllocation allocation);
-    PipelineLayout acquire_pipeline_layout(ResourceSet sets[4]);
+    PipelineLayout acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT]);
     DescriptorSet acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout);
     void update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set);
 

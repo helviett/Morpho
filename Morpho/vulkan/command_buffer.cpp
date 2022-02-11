@@ -88,7 +88,7 @@ void CommandBuffer::set_uniform_buffer(uint32_t set, uint32_t binding, Buffer bu
 
 void CommandBuffer::flush_pipeline() {
     bool is_pipeline_layout_dirty = false;
-    for (uint32_t i = 0; i < 4; i++) {
+    for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
         is_pipeline_layout_dirty |= sets[i].get_is_layout_dirty();
     }
     if (is_pipeline_layout_dirty) {
@@ -103,10 +103,10 @@ void CommandBuffer::flush_pipeline() {
 
 void CommandBuffer::flush_descriptor_sets() {
     bool is_pipeline_layout_dirty = false;
-    for (uint32_t i = 0; i < 4; i++) {
+    for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
         is_pipeline_layout_dirty |= sets[i].get_is_layout_dirty();
     }
-    for (uint32_t i = 0; i < 4; i++) {
+    for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
         if (is_pipeline_layout_dirty || descriptor_sets[i].get_descriptor_set() == VK_NULL_HANDLE) {
             descriptor_sets[i] = context->acquire_descriptor_set(pipeline_state.get_pipeline_layout().get_descriptor_set_layout(i));
             sets[i].mark_all_dirty();
