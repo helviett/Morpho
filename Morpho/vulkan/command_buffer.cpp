@@ -107,7 +107,10 @@ void CommandBuffer::flush_descriptor_sets() {
         is_pipeline_layout_dirty |= sets[i].get_is_layout_dirty();
     }
     for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
-        if (is_pipeline_layout_dirty || descriptor_sets[i].get_descriptor_set() == VK_NULL_HANDLE) {
+        if (
+            is_pipeline_layout_dirty || descriptor_sets[i].get_descriptor_set() == VK_NULL_HANDLE
+            || sets[i].get_is_contents_dirty()
+        ) {
             descriptor_sets[i] = context->acquire_descriptor_set(pipeline_state.get_pipeline_layout().get_descriptor_set_layout(i));
             sets[i].mark_all_dirty();
         }
