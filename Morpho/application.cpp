@@ -1,6 +1,7 @@
 #include "application.hpp"
 #include <fstream>
 #include <filesystem>
+#include <stb_image.h>
 
 void Application::run() {
     init_window();
@@ -54,7 +55,50 @@ void Application::run() {
     auto cmd = context->acquire_command_buffer();
     cmd.copy_buffer(staging_vertex_buffer, vertex_buffer, vertex_buffer_size);
     cmd.copy_buffer(staging_index_buffer, index_buffer, index_buffer_size);
+
+    int  width, height, channels;
+    stbi_uc* pixels = stbi_load("./assets/textures/texture.jpg", &width, &height, &channels, STBI_rgb_alpha);
+
+    if (pixels == nullptr) {
+        throw std::runtime_error("Unable to load texture.");
+    }
+
+    VkDeviceSize image_size = width * height * 4;
+
+    auto image = context->acquire_image(
+        { (uint32_t)width, (uint32_t)height, (uint32_t)1 },
+        VK_FORMAT_R8G8B8A8_SRGB,
+        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
+    auto staging_image_buffer = context->acquire_staging_buffer(
+        image_size,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VMA_MEMORY_USAGE_CPU_ONLY
+    );
+    staging_image_buffer.update((void*)pixels, image_size);
+    cmd.image_barrier(
+        image,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        0,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_ACCESS_TRANSFER_WRITE_BIT
+    );
+    cmd.copy_buffer_to_image(staging_image_buffer, image, { (uint32_t)width, (uint32_t)height, (uint32_t)1 });
+    cmd.image_barrier(
+        image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_ACCESS_SHADER_READ_BIT
+    );
+
     context->flush(cmd);
+    stbi_image_free(pixels);
 
     main_loop();
 }

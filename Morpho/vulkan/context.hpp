@@ -18,6 +18,7 @@
 #include "vma.hpp"
 #include "buffer.hpp"
 #include "limits.hpp"
+#include "image.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -68,7 +69,7 @@ public:
     PipelineLayout acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT]);
     DescriptorSet acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout);
     void update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set);
-
+    Image acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage);
 
     // public WSI stuff
     VkImageView get_swapchain_image_view() const;

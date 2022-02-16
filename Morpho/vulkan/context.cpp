@@ -612,7 +612,7 @@ Buffer Context::acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usag
 }
 
 void Context::map_memory(VmaAllocation allocation, void **map) {
-    vmaMapMemory(allocator, allocation, map);
+    auto res = vmaMapMemory(allocator, allocation, map);
 }
 
 void Context::unmap_memory(VmaAllocation allocation) {
@@ -762,6 +762,32 @@ PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DES
         vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
     });
     return PipelineLayout(pipeline_layout, descriptor_set_layouts);
+}
+
+Image Context::acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage) {
+    VkImageCreateInfo image_info{};
+    image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+    image_info.flags = 0;
+    image_info.extent = extent;
+    image_info.imageType = VK_IMAGE_TYPE_2D;
+    image_info.format = format;
+    image_info.mipLevels = 1;
+    image_info.arrayLayers = 1;
+    image_info.usage = image_usage;
+    image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+    image_info.samples = VK_SAMPLE_COUNT_1_BIT;
+    image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
+    image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+
+    VmaAllocationCreateInfo allocation_create_info{};
+    allocation_create_info.usage = memory_usage;
+
+    VkImage image;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocation_info;
+    vmaCreateImage(allocator, &image_info, &allocation_create_info, &image, &allocation, &allocation_info);
+
+    return Image(image, allocation, allocation_info);
 }
 
 }

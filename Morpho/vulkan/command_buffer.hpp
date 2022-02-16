@@ -9,6 +9,7 @@
 #include "pipeline.hpp"
 #include "descriptor_set.hpp"
 #include "limits.hpp"
+#include "image.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -31,6 +32,16 @@ public:
         uint32_t first_instance
     );
     void copy_buffer(Buffer source, Buffer destination, VkDeviceSize size) const;
+    void copy_buffer_to_image(Buffer source, Image destination, VkExtent3D extent) const;
+    void image_barrier(
+        const Image& image,
+        VkImageLayout old_layout,
+        VkImageLayout new_layout,
+        VkPipelineStageFlags src_stages,
+        VkAccessFlags src_access,
+        VkPipelineStageFlags dst_stages,
+        VkAccessFlags dst_access
+    );
 
     // Will turn into set_shader
     void add_shader(const Shader shader);

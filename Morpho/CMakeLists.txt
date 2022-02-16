@@ -15,6 +15,7 @@ if (NOT Vulkan_FOUND)
 endif()
 
 set(SOURCE_FILES
+    stb_image_impl.cpp
     morpho.cpp
     application.hpp application.cpp
     vulkan/command_buffer.hpp vulkan/command_buffer.cpp
@@ -33,6 +34,7 @@ set(SOURCE_FILES
     vulkan/descriptor_set.hpp vulkan/descriptor_set.cpp
     vulkan/descriptor_set_layout.hpp vulkan/descriptor_set_layout.cpp
     vulkan/limits.hpp vulkan/limits.cpp
+    vulkan/image.hpp vulkan/image.cpp
 )
 
 # Add source to this project's executable.
