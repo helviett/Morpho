@@ -35,6 +35,8 @@ set(SOURCE_FILES
     vulkan/descriptor_set_layout.hpp vulkan/descriptor_set_layout.cpp
     vulkan/limits.hpp vulkan/limits.cpp
     vulkan/image.hpp vulkan/image.cpp
+    vulkan/image_view.hpp vulkan/image_view.cpp
+    vulkan/sampler.hpp vulkan/sampler.cpp
 )
 
 # Add source to this project's executable.

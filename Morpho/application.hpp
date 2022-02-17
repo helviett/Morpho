@@ -11,6 +11,7 @@
 struct Vertex {
     glm::vec2 position;
     glm::vec3 color;
+    glm::vec2 uv;
 };
 
 struct UniformBufferObject {
@@ -30,8 +31,13 @@ private:
     Morpho::Vulkan::Buffer index_buffer;
     Morpho::Vulkan::Shader vert_shader;
     Morpho::Vulkan::Shader frag_shader;
+    Morpho::Vulkan::Image image;
+    Morpho::Vulkan::ImageView image_view;
+    Morpho::Vulkan::Sampler sampler;
+    bool is_first_update = true;
 
     void main_loop();
+    void initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd);
     void init_window();
     void cleanup();
     void render_frame();

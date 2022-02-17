@@ -7,99 +7,6 @@ void Application::run() {
     init_window();
     context->init(window);
     context->set_frame_context_count(2);
-
-    auto vert_code = read_file("./assets/shaders/triangle.vert.spv");
-    auto frag_code = read_file("./assets/shaders/triangle.frag.spv");
-    vert_shader = context->acquire_shader(vert_code.data(), (uint32_t)vert_code.size());
-    vert_shader.set_stage(Morpho::Vulkan::ShaderStage::Vertex);
-    vert_shader.set_entry_point("main");
-    frag_shader = context->acquire_shader(frag_code.data(), (uint32_t)frag_code.size());
-    frag_shader.set_stage(Morpho::Vulkan::ShaderStage::Fragment);
-    frag_shader.set_entry_point("main");
-
-
-    const std::vector<Vertex> vertices = {
-        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}},
-        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}},
-    };
-    const std::vector<uint16_t> indices = {
-        0, 1, 2,
-        2, 3, 0,
-    };
-    auto vertex_buffer_size = (VkDeviceSize)(sizeof(vertices[0]) * vertices.size());
-    auto staging_vertex_buffer = context->acquire_staging_buffer(
-        vertex_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY
-    );
-    staging_vertex_buffer.update(vertices.data(), vertex_buffer_size);
-    vertex_buffer = context->acquire_buffer(
-        vertex_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
-    auto index_buffer_size = (uint32_t)(sizeof(indices[0]) * indices.size());
-    auto staging_index_buffer = context->acquire_staging_buffer(
-        index_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY
-    );
-    staging_index_buffer.update(indices.data(), index_buffer_size);
-    index_buffer = context->acquire_buffer(
-        vertex_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
-    auto cmd = context->acquire_command_buffer();
-    cmd.copy_buffer(staging_vertex_buffer, vertex_buffer, vertex_buffer_size);
-    cmd.copy_buffer(staging_index_buffer, index_buffer, index_buffer_size);
-
-    int  width, height, channels;
-    stbi_uc* pixels = stbi_load("./assets/textures/texture.jpg", &width, &height, &channels, STBI_rgb_alpha);
-
-    if (pixels == nullptr) {
-        throw std::runtime_error("Unable to load texture.");
-    }
-
-    VkDeviceSize image_size = width * height * 4;
-
-    auto image = context->acquire_image(
-        { (uint32_t)width, (uint32_t)height, (uint32_t)1 },
-        VK_FORMAT_R8G8B8A8_SRGB,
-        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
-    auto staging_image_buffer = context->acquire_staging_buffer(
-        image_size,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY
-    );
-    staging_image_buffer.update((void*)pixels, image_size);
-    cmd.image_barrier(
-        image,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        0,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_ACCESS_TRANSFER_WRITE_BIT
-    );
-    cmd.copy_buffer_to_image(staging_image_buffer, image, { (uint32_t)width, (uint32_t)height, (uint32_t)1 });
-    cmd.image_barrier(
-        image,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_SHADER_READ_BIT
-    );
-
-    context->flush(cmd);
-    stbi_image_free(pixels);
-
     main_loop();
 }
 
@@ -129,12 +36,20 @@ void Application::render_frame() {
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
 
     context->begin_frame();
+
     auto cmd = context->acquire_command_buffer();
+
+    if (is_first_update) {
+        initialize_static_resources(cmd);
+        is_first_update = false;
+    }
+
     cmd.add_shader(vert_shader);
     cmd.add_shader(frag_shader);
     cmd.add_vertex_binding_description(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
     cmd.add_vertex_attribute_description(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position));
     cmd.add_vertex_attribute_description(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color));
+    cmd.add_vertex_attribute_description(0, 2, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv));
 
 
     Morpho::Vulkan::RenderPassInfo render_pass;
@@ -166,6 +81,7 @@ void Application::render_frame() {
     memcpy(data, &ubo, sizeof(ubo));
     context->unmap_memory(uniform2.get_allocation());
     cmd.set_uniform_buffer(1, 0, uniform1, 0, sizeof(UniformBufferObject));
+    cmd.set_combined_image_sampler(1, 1, image_view, sampler);
     cmd.bind_vertex_buffer(vertex_buffer, 0);
     cmd.bind_index_buffer(index_buffer, VK_INDEX_TYPE_UINT16);
     cmd.draw_indexed(6, 1, 0, 0, 0);
@@ -189,4 +105,97 @@ std::vector<char> Application::read_file(const std::string& filename) {
     file.close();
 
     return data;
+}
+
+void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd) {
+    auto vert_code = read_file("./assets/shaders/triangle.vert.spv");
+    auto frag_code = read_file("./assets/shaders/triangle.frag.spv");
+    vert_shader = context->acquire_shader(vert_code.data(), (uint32_t)vert_code.size());
+    vert_shader.set_stage(Morpho::Vulkan::ShaderStage::Vertex);
+    vert_shader.set_entry_point("main");
+    frag_shader = context->acquire_shader(frag_code.data(), (uint32_t)frag_code.size());
+    frag_shader.set_stage(Morpho::Vulkan::ShaderStage::Fragment);
+    frag_shader.set_entry_point("main");
+
+
+    const std::vector<Vertex> vertices = {
+        {{-0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}, {0.0f, 0.0f}},
+        {{0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}, {1.0f, 0.0f}},
+        {{0.5f, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.0f, 1.0f}},
+        {{-0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+    };
+    const std::vector<uint16_t> indices = {
+        0, 1, 2,
+        2, 3, 0,
+    };
+    auto vertex_buffer_size = (VkDeviceSize)(sizeof(vertices[0]) * vertices.size());
+    auto staging_vertex_buffer = context->acquire_staging_buffer(
+        vertex_buffer_size,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VMA_MEMORY_USAGE_CPU_ONLY
+    );
+    staging_vertex_buffer.update(vertices.data(), vertex_buffer_size);
+    vertex_buffer = context->acquire_buffer(
+        vertex_buffer_size,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
+    auto index_buffer_size = (uint32_t)(sizeof(indices[0]) * indices.size());
+    auto staging_index_buffer = context->acquire_staging_buffer(
+        index_buffer_size,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VMA_MEMORY_USAGE_CPU_ONLY
+    );
+    staging_index_buffer.update(indices.data(), index_buffer_size);
+    index_buffer = context->acquire_buffer(
+        vertex_buffer_size,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
+    cmd.copy_buffer(staging_vertex_buffer, vertex_buffer, vertex_buffer_size);
+    cmd.copy_buffer(staging_index_buffer, index_buffer, index_buffer_size);
+
+    int  width, height, channels;
+    stbi_uc* pixels = stbi_load("./assets/textures/texture.jpg", &width, &height, &channels, STBI_rgb_alpha);
+
+    if (pixels == nullptr) {
+        throw std::runtime_error("Unable to load texture.");
+    }
+
+    VkDeviceSize image_size = width * height * 4;
+
+    image = context->acquire_image(
+        { (uint32_t)width, (uint32_t)height, (uint32_t)1 },
+        VK_FORMAT_R8G8B8A8_SRGB,
+        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
+    auto staging_image_buffer = context->acquire_staging_buffer(
+        image_size,
+        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VMA_MEMORY_USAGE_CPU_ONLY
+    );
+    staging_image_buffer.update((void*)pixels, image_size);
+    cmd.image_barrier(
+        image,
+        VK_IMAGE_LAYOUT_UNDEFINED,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+        0,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_ACCESS_TRANSFER_WRITE_BIT
+    );
+    cmd.copy_buffer_to_image(staging_image_buffer, image, { (uint32_t)width, (uint32_t)height, (uint32_t)1 });
+    cmd.image_barrier(
+        image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_PIPELINE_STAGE_TRANSFER_BIT,
+        VK_ACCESS_TRANSFER_WRITE_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_ACCESS_SHADER_READ_BIT
+    );
+    image_view = context->create_image_view(VK_FORMAT_R8G8B8A8_SRGB, image);
+    sampler = context->acquire_sampler(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_FILTER_LINEAR);
+    stbi_image_free(pixels);
 }

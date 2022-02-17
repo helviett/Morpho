@@ -48,6 +48,7 @@ public:
     void add_vertex_attribute_description(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset);
     void add_vertex_binding_description(uint32_t binding, uint32_t stride, VkVertexInputRate input_rate);
     void set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range);
+    void set_combined_image_sampler(uint32_t set, uint32_t binding, ImageView image_view, Sampler sampler);
 private:
     VkCommandBuffer command_buffer;
     RenderPass current_render_pass = RenderPass(VK_NULL_HANDLE);

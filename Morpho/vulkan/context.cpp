@@ -653,13 +653,17 @@ void Context::flush(CommandBuffer command_buffer) {
 }
 
 DescriptorSet Context::acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout) {
-    VkDescriptorPoolSize pool_size{};
-    pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_size.descriptorCount = 100;
+    // TODO store info about required descriptor types in DescriptorSetLayout.
+    // For now just add all possible types.
+    VkDescriptorPoolSize pool_sizes[2];
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_sizes[0].descriptorCount = 100;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_sizes[1].descriptorCount = 100;
     VkDescriptorPoolCreateInfo pool_info{};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_info.poolSizeCount = 1;
-    pool_info.pPoolSizes = &pool_size;
+    pool_info.pPoolSizes = pool_sizes;
     pool_info.maxSets = 100;
     VkDescriptorPool descriptor_pool;
     vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool);
@@ -694,6 +698,10 @@ void Context::update_descriptor_set(DescriptorSet descriptor_set, ResourceSet re
         case ResourceType::UniformBuffer:
             write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             write.pBufferInfo = binding.get_buffer_info();
+            break;
+        case ResourceType::CombinedImageSampler:
+            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+            write.pImageInfo = binding.get_image_info();
             break;
         default:
             throw std::runtime_error("Not implemented exception.");
@@ -735,12 +743,17 @@ PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DES
             case ResourceType::None:
                 continue;
             case ResourceType::UniformBuffer:
-                bindings[current_binding].binding = current_binding;
                 bindings[current_binding].descriptorCount = 1;
                 bindings[current_binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 // TODO: Dehardcode.
                 bindings[current_binding].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-
+                break;
+            case ResourceType::CombinedImageSampler:
+                bindings[current_binding].descriptorCount = 1;
+                bindings[current_binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                // TODO: Dehardcode.
+                bindings[current_binding].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+                break;
             default:
                 break;
             }
@@ -788,6 +801,54 @@ Image Context::acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFla
     vmaCreateImage(allocator, &image_info, &allocation_create_info, &image, &allocation, &allocation_info);
 
     return Image(image, allocation, allocation_info);
+}
+
+ImageView Context::create_image_view(VkFormat format, Image& image) {
+    VkImageViewCreateInfo image_view_info{};
+    image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    image_view_info.format = format;
+    image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_view_info.subresourceRange.baseArrayLayer = 0;
+    image_view_info.subresourceRange.layerCount = 1;
+    image_view_info.subresourceRange.baseMipLevel = 0;
+    image_view_info.subresourceRange.levelCount = 1;
+    image_view_info.image = image.get_image();
+
+    VkImageView image_view;
+    vkCreateImageView(device, &image_view_info, nullptr, &image_view);
+
+    return ImageView(image_view);
+}
+
+void Context::release_image(Image& image) {
+    vmaDestroyImage(allocator, image.get_image(), image.get_allocation());
+}
+
+void Context::destroy_image_view(ImageView& image_view) {
+    vkDestroyImageView(device, image_view.get_image_view(), nullptr);
+}
+
+Sampler Context::acquire_sampler(VkSamplerAddressMode address_mode, VkFilter filter) {
+    VkSamplerCreateInfo sampler_info{};
+    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    sampler_info.addressModeU = address_mode;
+    sampler_info.addressModeV = address_mode;
+    sampler_info.addressModeW = address_mode;
+    sampler_info.anisotropyEnable = VK_FALSE;
+    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    sampler_info.minFilter = filter;
+    sampler_info.magFilter = filter;
+    sampler_info.compareEnable = VK_FALSE;
+    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    sampler_info.maxLod = 0.0f;
+    sampler_info.minLod = 0.0f;
+    sampler_info.unnormalizedCoordinates = VK_FALSE;
+
+    VkSampler sampler;
+    vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+
+    return Sampler(sampler);
 }
 
 }

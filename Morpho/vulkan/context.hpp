@@ -19,6 +19,8 @@
 #include "buffer.hpp"
 #include "limits.hpp"
 #include "image.hpp"
+#include "image_view.hpp"
+#include "sampler.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -70,6 +72,11 @@ public:
     DescriptorSet acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout);
     void update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set);
     Image acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage);
+    void release_image(Image& image);
+    ImageView create_image_view(VkFormat format, Image& image);
+    void destroy_image_view(ImageView& image_view);
+    Sampler acquire_sampler(VkSamplerAddressMode address_mode, VkFilter filter);
+
 
     // public WSI stuff
     VkImageView get_swapchain_image_view() const;

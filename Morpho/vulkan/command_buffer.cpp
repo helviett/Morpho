@@ -86,6 +86,10 @@ void CommandBuffer::set_uniform_buffer(uint32_t set, uint32_t binding, Buffer bu
     sets[set].set_uniform_buffer(binding, buffer, offset, range);
 }
 
+void CommandBuffer::set_combined_image_sampler(uint32_t set, uint32_t binding, ImageView image_view, Sampler sampler) {
+    sets[set].set_combined_image_sampler(binding, image_view, sampler);
+}
+
 void CommandBuffer::flush_pipeline() {
     bool is_pipeline_layout_dirty = false;
     for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
