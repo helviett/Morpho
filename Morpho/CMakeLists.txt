@@ -15,9 +15,6 @@ if (NOT Vulkan_FOUND)
 endif()
 
 set(SOURCE_FILES
-    stb_image_impl.cpp
-    morpho.cpp
-    application.hpp application.cpp
     vulkan/command_buffer.hpp vulkan/command_buffer.cpp
     vulkan/context.hpp vulkan/context.cpp
     vulkan/render_pass_info.hpp vulkan/render_pass_info.cpp
@@ -40,8 +37,8 @@ set(SOURCE_FILES
 )
 
 # Add source to this project's executable.
-add_executable (Morpho ${SOURCE_FILES})
+add_library (Morpho STATIC ${SOURCE_FILES})
 
 
 target_link_libraries(Morpho ${CONAN_LIBS} Vulkan::Vulkan)
-set_property(TARGET Morpho PROPERTY VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(Morpho PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
