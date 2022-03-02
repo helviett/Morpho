@@ -10,6 +10,9 @@ conan_basic_setup()
 
 set(SOURCE_FILES
     src/application.cpp src/application.hpp
+    src/input/input.cpp src/input/input.hpp
+    src/input/key.cpp src/input/key.hpp
+    src/camera.cpp src/camera.hpp
     src/main.cpp src/stb_image_impl.cpp
 )
 

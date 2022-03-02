@@ -91,7 +91,7 @@ private:
 #endif
 
     uint32_t frame_context_count = 1;
-    uint32_t frame_context_index;
+    uint32_t frame_context_index = 0;
     uint32_t swapchain_image_index;
     VkDebugUtilsMessengerEXT debug_messenger;
     VkPhysicalDevice gpu = VK_NULL_HANDLE;
