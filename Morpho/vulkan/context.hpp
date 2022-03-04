@@ -72,14 +72,16 @@ public:
     DescriptorSet acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout);
     void update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set);
     Image acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage);
-    void release_image(Image& image);
-    ImageView create_image_view(VkFormat format, Image& image);
-    void destroy_image_view(ImageView& image_view);
+    Image acquire_temporary_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage);
+    void release_image(Image image);
+    ImageView create_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect);
+    ImageView create_temporary_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect);
+    void destroy_image_view(ImageView image_view);
     Sampler acquire_sampler(VkSamplerAddressMode address_mode, VkFilter filter);
 
 
     // public WSI stuff
-    VkImageView get_swapchain_image_view() const;
+    ImageView get_swapchain_image_view() const;
     VkExtent2D get_swapchain_extent() const;
     // end of WSI stuff
 
@@ -128,8 +130,8 @@ private:
     GLFWwindow* window;
     VkSurfaceKHR surface;
     VkSwapchainKHR swapchain;
-    std::vector<VkImage> swapchain_images;
-    std::vector<VkImageView> swapchain_image_views;
+    std::vector<Image> swapchain_images;
+    std::vector<ImageView> swapchain_image_views;
     VkFormat swapchain_format;
     VkExtent2D swapchain_extent;
     void create_surface();

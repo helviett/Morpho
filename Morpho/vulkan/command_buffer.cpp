@@ -15,13 +15,20 @@ CommandBuffer::CommandBuffer(VkCommandBuffer command_buffer, Context* context) {
 void CommandBuffer::begin_render_pass(RenderPassInfo& render_pass_info) {
     current_render_pass = context->acquire_render_pass(render_pass_info);
     auto framebuffer = context->acquire_framebuffer(current_render_pass, render_pass_info);
-
+    uint32_t clear_value_count = 0;
+    VkClearValue clear_values[2];
+    if (render_pass_info.color_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
+        clear_values[clear_value_count++] = render_pass_info.color_attachment_clear_value;
+    }
+    if (render_pass_info.depth_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
+        clear_values[clear_value_count++] = render_pass_info.depth_attachment_clear_value;
+    }
 
     VkRenderPassBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_info.framebuffer = framebuffer.get_vulkan_handle();
-    begin_info.clearValueCount = 1;
-    begin_info.pClearValues = &render_pass_info.clear_value;
+    begin_info.clearValueCount = clear_value_count;
+    begin_info.pClearValues =clear_values;
     begin_info.renderPass = current_render_pass.get_vulkan_handle();
     begin_info.renderArea.offset = { 0, 0 };
     begin_info.renderArea.extent = context->get_swapchain_extent();
@@ -196,6 +203,10 @@ void CommandBuffer::image_barrier(
         1,
         &barrier
     );
+}
+
+void CommandBuffer::set_depth_state(VkBool32 test_enable, VkBool32 write_enable, VkCompareOp compare_op) {
+    pipeline_state.set_depth_state(test_enable, write_enable, compare_op);
 }
 
 }

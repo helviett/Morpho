@@ -70,17 +70,37 @@ void Application::render_frame() {
     cmd.add_shader(vert_shader);
     cmd.add_shader(frag_shader);
     cmd.add_vertex_binding_description(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
-    cmd.add_vertex_attribute_description(0, 0, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, position));
+    cmd.add_vertex_attribute_description(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position));
     cmd.add_vertex_attribute_description(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color));
     cmd.add_vertex_attribute_description(0, 2, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv));
-
+    cmd.set_depth_state(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
 
     Morpho::Vulkan::RenderPassInfo render_pass;
-    render_pass.clear_value = { 0.0f, 0.0f, 0.0f, };
-    render_pass.image_view = context->get_swapchain_image_view();
+    render_pass.color_attachment_clear_value = { 0.0f, 0.0f, 0.0f, };
+    render_pass.color_attachment_image_view = context->get_swapchain_image_view();
+    auto extent = context->get_swapchain_extent();
+    auto depth_image = context->acquire_temporary_image(
+        { extent.width, extent.height, 1 },
+        VK_FORMAT_D32_SFLOAT,
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
+    render_pass.depth_attachment_image_view = context->create_temporary_image_view(
+        VK_FORMAT_D32_SFLOAT,
+        depth_image,
+        VK_IMAGE_ASPECT_DEPTH_BIT
+    );
+    render_pass.depth_attachment_clear_value.depthStencil = {1.0f, 0};
+
+
     cmd.begin_render_pass(render_pass);
-    auto uniform = context->acquire_staging_buffer(
+    auto matrices_uniform1 = context->acquire_staging_buffer(
         sizeof(UniformBufferObject),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    auto global_color_uniform1 = context->acquire_staging_buffer(
+        sizeof(glm::vec3),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         VMA_MEMORY_USAGE_CPU_TO_GPU
     );
@@ -89,17 +109,34 @@ void Application::render_frame() {
     ubo.view = camera.get_view();
     ubo.proj = camera.get_projection();
     ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 5.0f));
-
-    void* data;
-    context->map_memory(uniform.get_allocation(), &data);
-    memcpy(data, &ubo, sizeof(ubo));
-    context->unmap_memory(uniform.get_allocation());
-
-    cmd.set_uniform_buffer(1, 0, uniform, 0, sizeof(UniformBufferObject));
+    glm::vec3 color(0.0f, 0.0f, 1.0f);
+    matrices_uniform1.update(&ubo, sizeof(UniformBufferObject));
+    global_color_uniform1.update(&color, sizeof(glm::vec3));
+    cmd.set_uniform_buffer(1, 0, matrices_uniform1, 0, sizeof(UniformBufferObject));
+    cmd.set_uniform_buffer(0, 0, global_color_uniform1, 0, sizeof(glm::vec3));
     cmd.set_combined_image_sampler(1, 1, image_view, sampler);
     cmd.bind_vertex_buffer(vertex_buffer, 0);
     cmd.bind_index_buffer(index_buffer, VK_INDEX_TYPE_UINT16);
-    cmd.draw_indexed(6, 1, 0, 0, 0);
+    cmd.draw_indexed(36, 1, 0, 0, 0);
+
+    auto matrices_uniform2 = context->acquire_staging_buffer(
+        sizeof(UniformBufferObject),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    auto global_color_uniform2 = context->acquire_staging_buffer(
+        sizeof(glm::vec3),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    color = glm::vec3(1.0f, 0.0f, 0.0f);
+    ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 3.0f));
+    matrices_uniform2.update(&ubo, sizeof(UniformBufferObject));
+    global_color_uniform2.update(&color, sizeof(glm::vec3));
+    cmd.set_uniform_buffer(1, 0, matrices_uniform2, 0, sizeof(UniformBufferObject));
+    cmd.set_uniform_buffer(0, 0, global_color_uniform2, 0, sizeof(glm::vec3));
+    cmd.draw_indexed(36, 1, 0, 0, 0);
+
     cmd.end_render_pass();
 
     context->submit(cmd);
@@ -132,14 +169,50 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
 
 
     const std::vector<Vertex> vertices = {
-        {{0.0f, 0.0f}, {1.0f, 0.0f, 0.0f}, {0.0f, 1.0f}},
-        {{0.0f, 1.0f}, {0.0f, 1.0f, 0.0f}, {0.0f, 0.0f}},
-        {{1.0f, 1.0f}, {0.0f, 0.0f, 1.0f}, {1.0f, 0.0f}},
-        {{1.0f, 0.0f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        //front
+        {{-0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f, 0.5f, 0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{0.5f, 0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{0.5f, -0.5f, 0.5f},  {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        // back
+        {{0.5f, -0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{0.5f, 0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{-0.5f, 0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        // right
+        {{0.5f, -0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{0.5f, 0.5f, 0.5f},    {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{0.5f, 0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{0.5f, -0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        // left
+        {{-0.5f, -0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f, 0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{-0.5f, 0.5f, 0.5f},    {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{-0.5f, -0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        // top
+        {{-0.5f, 0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f, 0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{0.5f, 0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{0.5f, 0.5f, 0.5f},    {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
+        // bot
+        {{-0.5f, -0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
+        {{-0.5f, -0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
+        {{0.5f, -0.5f, 0.5f},    {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
+        {{0.5f, -0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
     };
     const std::vector<uint16_t> indices = {
         0, 1, 2,
         2, 3, 0,
+        4, 5, 6,
+        6, 7, 4,
+        8, 9, 10,
+        10, 11, 8,
+        12, 13, 14,
+        14, 15, 12,
+        16, 17, 18,
+        18, 19, 16,
+        20, 21, 22,
+        22, 23, 20,
     };
     auto vertex_buffer_size = (VkDeviceSize)(sizeof(vertices[0]) * vertices.size());
     auto staging_vertex_buffer = context->acquire_staging_buffer(
@@ -208,7 +281,7 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         VK_ACCESS_SHADER_READ_BIT
     );
-    image_view = context->create_image_view(VK_FORMAT_R8G8B8A8_SRGB, image);
+    image_view = context->create_image_view(VK_FORMAT_R8G8B8A8_SRGB, image, VK_IMAGE_ASPECT_COLOR_BIT);
     sampler = context->acquire_sampler(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_FILTER_LINEAR);
     stbi_image_free(pixels);
 }
@@ -235,13 +308,9 @@ void Application::process_mouse_button_input(GLFWwindow* window, int button, int
     keys[GLFW_MOUSE_BUTTON_LEFT] = Key::MOUSE_BUTTON_LEFT;
     keys[GLFW_MOUSE_BUTTON_RIGHT] = Key::MOUSE_BUTTON_RIGHT;
     keys[GLFW_MOUSE_BUTTON_MIDDLE] = Key::MOUSE_BUTTON_MIDDLE;
-
     if (keys[button] == Key::UNDEFINED) {
         return;
     }
-
-    std::cout << action << std::endl;
-
     if (action == GLFW_PRESS) {
         app->input.press_key(keys[button]);
     } else {

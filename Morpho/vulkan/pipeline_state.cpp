@@ -2,7 +2,10 @@
 
 namespace Morpho::Vulkan {
 
-PipelineState::PipelineState() {}
+PipelineState::PipelineState() {
+    depth_stencil_state = {};
+    depth_stencil_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+}
 
 void PipelineState::add_shader(const Shader shader) {
     is_dirty = true;
@@ -63,6 +66,17 @@ bool PipelineState::get_and_clear_is_dirty() {
 
 uint32_t PipelineState::get_attribute_description_count() const {
     return attribute_description_count;
+}
+
+void PipelineState::set_depth_state(VkBool32 test_enable, VkBool32 write_enable, VkCompareOp compare_op) {
+    is_dirty = true;
+    depth_stencil_state.depthTestEnable = test_enable;
+    depth_stencil_state.depthWriteEnable = write_enable;
+    depth_stencil_state.depthCompareOp = compare_op;
+}
+
+VkPipelineDepthStencilStateCreateInfo PipelineState::get_depth_stencil_state() const {
+    return depth_stencil_state;
 }
 
 }

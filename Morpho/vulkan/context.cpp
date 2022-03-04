@@ -258,13 +258,15 @@ void Context::create_swapchain() {
     uint32_t swapchain_image_count;
     vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nullptr);
     swapchain_images.resize(swapchain_image_count);
-    vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_images.data());
+    std::vector<VkImage> swapchain_vk_images(swapchain_image_count);
+    vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_vk_images.data());
     swapchain_image_views.resize(swapchain_image_count);
     for (uint32_t i = 0; i < swapchain_image_count; i++) {
+        swapchain_images[i] = Image(swapchain_vk_images[i]);
         VkImageViewCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         info.format = swapchain_format;
-        info.image = swapchain_images[i];
+        info.image = swapchain_vk_images[i];
         info.viewType = VK_IMAGE_VIEW_TYPE_2D;
         info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
         info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
@@ -275,7 +277,9 @@ void Context::create_swapchain() {
         info.subresourceRange.levelCount = 1;
         info.subresourceRange.baseArrayLayer = 0;
         info.subresourceRange.layerCount = 1;
-        vkCreateImageView(device, &info, nullptr, &swapchain_image_views[i]);
+        VkImageView image_view;
+        vkCreateImageView(device, &info, nullptr, &image_view);
+        swapchain_image_views[i] = ImageView(image_view);
     }
 }
 
@@ -376,36 +380,64 @@ void Context::submit(CommandBuffer command_buffer) {
 }
 
 RenderPass Context::acquire_render_pass(RenderPassInfo& render_pass_info) {
-    VkAttachmentDescription desc{};
-    desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-    desc.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-    desc.format = swapchain_format;
-    desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-    desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-    desc.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-    desc.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-    desc.samples = VK_SAMPLE_COUNT_1_BIT;
-
-    VkAttachmentReference ref{};
-    ref.attachment = 0;
-    ref.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-
-    VkSubpassDescription subpass{};
-    subpass.colorAttachmentCount = 1;
-    subpass.pColorAttachments = &ref;
-
     VkSubpassDependency dependency{};
     dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
     dependency.dstSubpass = 0;
-    dependency.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.srcAccessMask = 0;
-    dependency.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-    dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+
+    uint32_t desciption_count = 0;
+    VkAttachmentDescription descriptions[2];
+    uint32_t ref_count = 0;
+    VkAttachmentReference refs[2];
+    bool has_depth_attachment = render_pass_info.depth_attachment_image_view.get_image_view() != VK_NULL_HANDLE;
+
+
+    if (render_pass_info.color_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
+        descriptions[desciption_count].flags = 0;
+        descriptions[desciption_count].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        descriptions[desciption_count].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+        descriptions[desciption_count].format = swapchain_format;
+        descriptions[desciption_count].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        descriptions[desciption_count].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        descriptions[desciption_count].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        descriptions[desciption_count].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        descriptions[desciption_count].samples = VK_SAMPLE_COUNT_1_BIT;
+        refs[ref_count].attachment = desciption_count;
+        refs[ref_count].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        desciption_count++;
+        ref_count++;
+        dependency.srcStageMask |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.dstStageMask |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        dependency.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+    }
+
+    if (render_pass_info.depth_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
+        descriptions[desciption_count].flags = 0;
+        descriptions[desciption_count].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        descriptions[desciption_count].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        descriptions[desciption_count].format = VK_FORMAT_D32_SFLOAT; // get_image_view()(.get_format() || get_image().get_format())
+        descriptions[desciption_count].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        descriptions[desciption_count].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        descriptions[desciption_count].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
+        descriptions[desciption_count].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+        descriptions[desciption_count].samples = VK_SAMPLE_COUNT_1_BIT;
+        refs[ref_count].attachment = desciption_count;
+        refs[ref_count].layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        dependency.srcStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dependency.dstStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
+        dependency.dstAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        desciption_count++;
+        ref_count++;
+    }
+
+    VkSubpassDescription subpass{};
+    subpass.colorAttachmentCount = has_depth_attachment ? ref_count - 1 : ref_count;
+    subpass.pColorAttachments = refs;
+    subpass.pDepthStencilAttachment = has_depth_attachment ? &refs[ref_count - 1] : nullptr;
 
     VkRenderPassCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    create_info.attachmentCount = 1;
-    create_info.pAttachments = &desc;
+    create_info.attachmentCount = desciption_count;
+    create_info.pAttachments = descriptions;
     create_info.subpassCount = 1;
     create_info.pSubpasses = &subpass;
     create_info.dependencyCount = 1;
@@ -425,10 +457,19 @@ RenderPass Context::acquire_render_pass(RenderPassInfo& render_pass_info) {
 Framebuffer Context::acquire_framebuffer(RenderPass render_pass, RenderPassInfo& render_pass_info) {
     // Need abstraction over VkImage and VkImageView.
     // For now assume image_view is swapchain image view.
+    uint32_t attachment_count = 0;
+    VkImageView attachments[2] = { VK_NULL_HANDLE };
+    if (render_pass_info.color_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
+        attachments[attachment_count++] = render_pass_info.color_attachment_image_view.get_image_view();
+    }
+    if (render_pass_info.depth_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
+        attachments[attachment_count++] = render_pass_info.depth_attachment_image_view.get_image_view();
+    }
+
     VkFramebufferCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    info.attachmentCount = 1;
-    info.pAttachments = &render_pass_info.image_view;
+    info.attachmentCount = attachment_count;
+    info.pAttachments = attachments;
     info.width = swapchain_extent.width;
     info.height = swapchain_extent.height;
     info.layers = 1;
@@ -444,7 +485,7 @@ Framebuffer Context::acquire_framebuffer(RenderPass render_pass, RenderPassInfo&
     return Framebuffer(framebuffer);
 }
 
-VkImageView Context::get_swapchain_image_view() const {
+ImageView Context::get_swapchain_image_view() const {
     return swapchain_image_views[swapchain_image_index];
 }
 
@@ -540,7 +581,7 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
     multisample_state.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     multisample_state.sampleShadingEnable = VK_FALSE;
 
-    // VkPipelineDepthStencilStateCreateInfo depth_stencil_state{};
+     VkPipelineDepthStencilStateCreateInfo depth_stencil_state = pipeline_state.get_depth_stencil_state();
 
     // VkPipelineDynamicStateCreateInfo dynamic_state{};
 
@@ -573,7 +614,7 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
     pipeline_info.pViewportState = &viewport_state;
     pipeline_info.pRasterizationState = &rasterization_state;
     pipeline_info.pMultisampleState = &multisample_state;
-    pipeline_info.pDepthStencilState = nullptr;
+    pipeline_info.pDepthStencilState = &depth_stencil_state;
     pipeline_info.pColorBlendState = &color_blend_state;
     pipeline_info.pDynamicState = nullptr;
     pipeline_info.layout = pipeline_state.get_pipeline_layout().get_pipeline_layout();
@@ -746,7 +787,7 @@ PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DES
                 bindings[current_binding].descriptorCount = 1;
                 bindings[current_binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 // TODO: Dehardcode.
-                bindings[current_binding].stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+                bindings[current_binding].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
                 break;
             case ResourceType::CombinedImageSampler:
                 bindings[current_binding].descriptorCount = 1;
@@ -803,12 +844,20 @@ Image Context::acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFla
     return Image(image, allocation, allocation_info);
 }
 
-ImageView Context::create_image_view(VkFormat format, Image& image) {
+Image Context::acquire_temporary_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage) {
+    auto image = acquire_image(extent, format, image_usage, memory_usage);
+    get_current_frame_context().destructors.push_back([=] {
+        release_image(image);
+    });
+    return image;
+}
+
+ImageView Context::create_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect) {
     VkImageViewCreateInfo image_view_info{};
     image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     image_view_info.format = format;
     image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
-    image_view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    image_view_info.subresourceRange.aspectMask = aspect;
     image_view_info.subresourceRange.baseArrayLayer = 0;
     image_view_info.subresourceRange.layerCount = 1;
     image_view_info.subresourceRange.baseMipLevel = 0;
@@ -821,11 +870,20 @@ ImageView Context::create_image_view(VkFormat format, Image& image) {
     return ImageView(image_view);
 }
 
-void Context::release_image(Image& image) {
+
+ImageView Context::create_temporary_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect) {
+    auto image_view = create_image_view(format, image, aspect);
+    get_current_frame_context().destructors.push_back([=]{
+        destroy_image_view(image_view);
+    });
+    return image_view;
+}
+
+void Context::release_image(Image image) {
     vmaDestroyImage(allocator, image.get_image(), image.get_allocation());
 }
 
-void Context::destroy_image_view(ImageView& image_view) {
+void Context::destroy_image_view(ImageView image_view) {
     vkDestroyImageView(device, image_view.get_image_view(), nullptr);
 }
 

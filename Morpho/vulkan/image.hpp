@@ -8,6 +8,7 @@ class Image {
 public:
     Image();
     Image(VkImage image, VmaAllocation allocation, VmaAllocationInfo allocation_info);
+    Image(VkImage image);
 
     VkImage get_image() const;
     VmaAllocation get_allocation() const;

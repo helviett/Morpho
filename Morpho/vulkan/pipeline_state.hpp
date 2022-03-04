@@ -25,6 +25,8 @@ public:
     PipelineLayout get_pipeline_layout() const;
     bool get_is_dirty() const;
     bool get_and_clear_is_dirty();
+    void set_depth_state(VkBool32 test_enable, VkBool32 write_enable, VkCompareOp compare_op);
+    VkPipelineDepthStencilStateCreateInfo get_depth_stencil_state() const;
 private:
     bool is_dirty = true;
     Shader shaders[2];
@@ -32,6 +34,7 @@ private:
     VkVertexInputAttributeDescription attribute_descriptions[Limits::MAX_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
     uint32_t attribute_description_count = 0;
     VkVertexInputBindingDescription binding_description;
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_state;
     PipelineLayout pipeline_layout;
 };
 

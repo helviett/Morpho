@@ -1,11 +1,12 @@
 #pragma once
-#include <vulkan/vulkan.h>
+#include "image_view.hpp"
 
 namespace Morpho::Vulkan {
     struct RenderPassInfo {
-        // Keep vulkan types for now.
         // Assume image_view is swapchain image view.
-        VkImageView image_view;
-        VkClearValue clear_value;
+        ImageView color_attachment_image_view;
+        VkClearValue color_attachment_clear_value;
+        ImageView depth_attachment_image_view;
+        VkClearValue depth_attachment_clear_value;
     };
 }
