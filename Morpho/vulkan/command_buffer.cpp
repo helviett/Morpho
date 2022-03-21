@@ -209,4 +209,20 @@ void CommandBuffer::set_depth_state(VkBool32 test_enable, VkBool32 write_enable,
     pipeline_state.set_depth_state(test_enable, write_enable, compare_op);
 }
 
+void CommandBuffer::clear_vertex_attribute_descriptions() {
+    pipeline_state.clear_vertex_attribute_descriptions();
+}
+
+void CommandBuffer::clear_vertex_binding_descriptions() {
+    pipeline_state.clear_vertex_binding_descriptions();
+}
+
+void CommandBuffer::set_front_face(VkFrontFace front_face) {
+    pipeline_state.set_front_face(front_face);
+}
+
+void CommandBuffer::set_cull_mode(VkCullModeFlags cull_mode) {
+    pipeline_state.set_cull_mode(cull_mode);
+}
+
 }

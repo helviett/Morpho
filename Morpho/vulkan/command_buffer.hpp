@@ -50,6 +50,10 @@ public:
     void set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range);
     void set_combined_image_sampler(uint32_t set, uint32_t binding, ImageView image_view, Sampler sampler);
     void set_depth_state(VkBool32 test_enable, VkBool32 write_enable, VkCompareOp compare_op);
+    void clear_vertex_attribute_descriptions();
+    void clear_vertex_binding_descriptions();
+    void set_front_face(VkFrontFace front_face);
+    void set_cull_mode(VkCullModeFlags cull_mode);
 private:
     VkCommandBuffer command_buffer;
     RenderPass current_render_pass = RenderPass(VK_NULL_HANDLE);

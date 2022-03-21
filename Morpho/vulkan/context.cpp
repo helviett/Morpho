@@ -524,12 +524,16 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
         attributes_descriptions[i] = pipeline_state.get_vertex_attribute_description(i);
     }
 
-    VkVertexInputBindingDescription binding_description = pipeline_state.get_vertex_binding_description();
+    VkVertexInputBindingDescription binding_descriptions[Limits::MAX_VERTEX_INPUT_BINDING_COUNT];
+    for (uint32_t i = 0; i < pipeline_state.get_vertex_binding_description_count(); i++) {
+        binding_descriptions[i] = pipeline_state.get_vertex_binding_description(i);
+    }
+
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state{};
     vertex_input_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input_state.vertexBindingDescriptionCount = 1;
-    vertex_input_state.pVertexBindingDescriptions = &binding_description;
+    vertex_input_state.vertexBindingDescriptionCount = pipeline_state.get_vertex_binding_description_count();
+    vertex_input_state.pVertexBindingDescriptions = binding_descriptions;
     vertex_input_state.vertexAttributeDescriptionCount = pipeline_state.get_attribute_description_count();
     vertex_input_state.pVertexAttributeDescriptions = attributes_descriptions;
 
@@ -570,8 +574,8 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
     rasterization_state.rasterizerDiscardEnable = VK_FALSE;
     rasterization_state.polygonMode = VK_POLYGON_MODE_FILL;
     rasterization_state.lineWidth = 1.0f;
-    rasterization_state.cullMode = VK_CULL_MODE_BACK_BIT;
-    rasterization_state.frontFace = VK_FRONT_FACE_CLOCKWISE;
+    rasterization_state.cullMode = pipeline_state.get_cull_mode();
+    rasterization_state.frontFace = pipeline_state.get_front_face();
     rasterization_state.depthBiasEnable = VK_FALSE;
 
     VkPipelineMultisampleStateCreateInfo multisample_state{};
@@ -888,15 +892,25 @@ void Context::destroy_image_view(ImageView image_view) {
 }
 
 Sampler Context::acquire_sampler(VkSamplerAddressMode address_mode, VkFilter filter) {
+    return acquire_sampler(address_mode, address_mode, address_mode, filter, filter);
+}
+
+Sampler Context::acquire_sampler(
+    VkSamplerAddressMode address_mode_u,
+    VkSamplerAddressMode address_mode_v,
+    VkSamplerAddressMode address_mode_w,
+    VkFilter min_filter,
+    VkFilter mag_filter
+) {
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.addressModeU = address_mode;
-    sampler_info.addressModeV = address_mode;
-    sampler_info.addressModeW = address_mode;
+    sampler_info.addressModeU = address_mode_u;
+    sampler_info.addressModeV = address_mode_v;
+    sampler_info.addressModeW = address_mode_w;
     sampler_info.anisotropyEnable = VK_FALSE;
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    sampler_info.minFilter = filter;
-    sampler_info.magFilter = filter;
+    sampler_info.minFilter = min_filter;
+    sampler_info.magFilter = mag_filter;
     sampler_info.compareEnable = VK_FALSE;
     sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     sampler_info.maxLod = 0.0f;

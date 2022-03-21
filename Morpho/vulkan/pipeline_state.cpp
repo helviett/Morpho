@@ -32,17 +32,19 @@ void PipelineState::add_vertex_attribute_description(uint32_t binding, uint32_t 
 
 void PipelineState::add_vertex_binding_description(uint32_t binding, uint32_t stride, VkVertexInputRate input_rate) {
     is_dirty = true;
-    binding_description.binding = 0;
-    binding_description.stride = stride;
-    binding_description.inputRate = input_rate;
+    VkVertexInputBindingDescription desc;
+    desc.binding = binding;
+    desc.stride = stride;
+    desc.inputRate = input_rate;
+    binding_descriptions[binding_description_count++] = desc;
 }
 
 VkVertexInputAttributeDescription PipelineState::get_vertex_attribute_description(uint32_t index) const {
     return attribute_descriptions[index];
 }
 
-VkVertexInputBindingDescription PipelineState::get_vertex_binding_description() const {
-    return binding_description;
+VkVertexInputBindingDescription PipelineState::get_vertex_binding_description(uint32_t index) const {
+    return binding_descriptions[index];
 }
 
 void PipelineState::set_pipeline_layout(PipelineLayout pipeline_layout) {
@@ -77,6 +79,38 @@ void PipelineState::set_depth_state(VkBool32 test_enable, VkBool32 write_enable,
 
 VkPipelineDepthStencilStateCreateInfo PipelineState::get_depth_stencil_state() const {
     return depth_stencil_state;
+}
+
+uint32_t PipelineState::get_vertex_binding_description_count() const {
+    return binding_description_count;
+}
+
+void PipelineState::clear_vertex_attribute_descriptions() {
+    is_dirty = true;
+    attribute_description_count = 0;
+}
+
+void PipelineState::clear_vertex_binding_descriptions() {
+    is_dirty = true;
+    binding_description_count = 0;
+}
+
+void PipelineState::set_front_face(VkFrontFace front_face) {
+    is_dirty = true;
+    this->front_face = front_face;
+}
+
+VkFrontFace PipelineState::get_front_face() const {
+    return front_face;
+}
+
+void PipelineState::set_cull_mode(VkCullModeFlags cull_mode) {
+    is_dirty = true;
+    this->cull_mode = cull_mode;
+}
+
+VkCullModeFlags PipelineState::get_cull_mode() const {
+    return cull_mode;
 }
 
 }
