@@ -14,6 +14,7 @@ set(SOURCE_FILES
     src/input/key.cpp src/input/key.hpp
     src/camera.cpp src/camera.hpp
     src/main.cpp src/stb_image_impl.cpp
+    src/tinygltf_impl.cpp src/stb_image_write_impl.cpp
 )
 
 # Add source to this project's executable.

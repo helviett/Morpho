@@ -1,13 +1,15 @@
 #version 450
 
-layout(set = 1, binding = 1) uniform sampler2D textureSampler;
-layout(set = 0, binding = 0) uniform ColorBlock { vec3 globalColor; };
+layout(set = 0, binding = 1) uniform sampler2D base_color_texture;
+layout(set = 0, binding = 2) uniform Materal {
+    vec4 base_color_factor;
+} material;
 
-layout(location = 0) in vec3 fragColor;
-layout(location = 1) in vec2 fragTexCoord;
+layout(location = 0) in vec3 normal;
+layout(location = 1) in vec2 uv;
 
-layout(location = 0) out vec4 outColor;
+layout(location = 0) out vec4 out_color;
 
 void main() {
-    outColor = texture(textureSampler, fragTexCoord) * vec4(globalColor, 1.0);
+    out_color = texture(base_color_texture, uv) * material.base_color_factor;
 }

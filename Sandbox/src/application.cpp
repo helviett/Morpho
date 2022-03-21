@@ -1,7 +1,8 @@
 #include "application.hpp"
 #include <fstream>
-#include <filesystem>
 #include <stb_image.h>
+
+namespace fs = std::filesystem;
 
 void Application::run() {
     init_window();
@@ -28,7 +29,7 @@ void Application::init_window() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    window = glfwCreateWindow(800, 600, "Vulkan", nullptr, nullptr);
+    window = glfwCreateWindow(1200, 1000, "Vulkan", nullptr, nullptr);
 
     glfwSetWindowUserPointer(window, this);
     glfwSetKeyCallback(window, process_keyboard_input);
@@ -57,24 +58,15 @@ void Application::render_frame() {
     static auto startTime = std::chrono::high_resolution_clock::now();
     auto currentTime = std::chrono::high_resolution_clock::now();
     float time = std::chrono::duration<float, std::chrono::seconds::period>(currentTime - startTime).count();
-
     context->begin_frame();
-
     auto cmd = context->acquire_command_buffer();
-
     if (is_first_update) {
         initialize_static_resources(cmd);
         is_first_update = false;
     }
-
     cmd.add_shader(vert_shader);
     cmd.add_shader(frag_shader);
-    cmd.add_vertex_binding_description(0, sizeof(Vertex), VK_VERTEX_INPUT_RATE_VERTEX);
-    cmd.add_vertex_attribute_description(0, 0, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, position));
-    cmd.add_vertex_attribute_description(0, 1, VK_FORMAT_R32G32B32_SFLOAT, offsetof(Vertex, color));
-    cmd.add_vertex_attribute_description(0, 2, VK_FORMAT_R32G32_SFLOAT, offsetof(Vertex, uv));
     cmd.set_depth_state(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
-
     Morpho::Vulkan::RenderPassInfo render_pass;
     render_pass.color_attachment_clear_value = { 0.0f, 0.0f, 0.0f, };
     render_pass.color_attachment_image_view = context->get_swapchain_image_view();
@@ -91,54 +83,9 @@ void Application::render_frame() {
         VK_IMAGE_ASPECT_DEPTH_BIT
     );
     render_pass.depth_attachment_clear_value.depthStencil = {1.0f, 0};
-
-
     cmd.begin_render_pass(render_pass);
-    auto matrices_uniform1 = context->acquire_staging_buffer(
-        sizeof(UniformBufferObject),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
-    );
-    auto global_color_uniform1 = context->acquire_staging_buffer(
-        sizeof(glm::vec3),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
-    );
-    auto swapchain_extent = context->get_swapchain_extent();
-    UniformBufferObject ubo{};
-    ubo.view = camera.get_view();
-    ubo.proj = camera.get_projection();
-    ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 5.0f));
-    glm::vec3 color(0.0f, 0.0f, 1.0f);
-    matrices_uniform1.update(&ubo, sizeof(UniformBufferObject));
-    global_color_uniform1.update(&color, sizeof(glm::vec3));
-    cmd.set_uniform_buffer(1, 0, matrices_uniform1, 0, sizeof(UniformBufferObject));
-    cmd.set_uniform_buffer(0, 0, global_color_uniform1, 0, sizeof(glm::vec3));
-    cmd.set_combined_image_sampler(1, 1, image_view, sampler);
-    cmd.bind_vertex_buffer(vertex_buffer, 0);
-    cmd.bind_index_buffer(index_buffer, VK_INDEX_TYPE_UINT16);
-    cmd.draw_indexed(36, 1, 0, 0, 0);
-
-    auto matrices_uniform2 = context->acquire_staging_buffer(
-        sizeof(UniformBufferObject),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
-    );
-    auto global_color_uniform2 = context->acquire_staging_buffer(
-        sizeof(glm::vec3),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
-    );
-    color = glm::vec3(1.0f, 0.0f, 0.0f);
-    ubo.model = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 3.0f));
-    matrices_uniform2.update(&ubo, sizeof(UniformBufferObject));
-    global_color_uniform2.update(&color, sizeof(glm::vec3));
-    cmd.set_uniform_buffer(1, 0, matrices_uniform2, 0, sizeof(UniformBufferObject));
-    cmd.set_uniform_buffer(0, 0, global_color_uniform2, 0, sizeof(glm::vec3));
-    cmd.draw_indexed(36, 1, 0, 0, 0);
-
+    draw_model(model, cmd);
     cmd.end_render_pass();
-
     context->submit(cmd);
     context->end_frame();
 }
@@ -166,104 +113,23 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
     frag_shader = context->acquire_shader(frag_code.data(), (uint32_t)frag_code.size());
     frag_shader.set_stage(Morpho::Vulkan::ShaderStage::Fragment);
     frag_shader.set_entry_point("main");
-
-
-    const std::vector<Vertex> vertices = {
-        //front
-        {{-0.5f, -0.5f, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-        {{-0.5f, 0.5f, 0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        {{0.5f, 0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{0.5f, -0.5f, 0.5f},  {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-        // back
-        {{0.5f, -0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-        {{0.5f, 0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        {{-0.5f, 0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-        // right
-        {{0.5f, -0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-        {{0.5f, 0.5f, 0.5f},    {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        {{0.5f, 0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{0.5f, -0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-        // left
-        {{-0.5f, -0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-        {{-0.5f, 0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        {{-0.5f, 0.5f, 0.5f},    {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{-0.5f, -0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-        // top
-        {{-0.5f, 0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-        {{-0.5f, 0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        {{0.5f, 0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{0.5f, 0.5f, 0.5f},    {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-        // bot
-        {{-0.5f, -0.5f, -0.5f},  {1.0f, 1.0f, 1.0f}, {0.0f, 1.0f}},
-        {{-0.5f, -0.5f, 0.5f},   {1.0f, 1.0f, 1.0f}, {0.0f, 0.0f}},
-        {{0.5f, -0.5f, 0.5f},    {1.0f, 1.0f, 1.0f}, {1.0f, 0.0f}},
-        {{0.5f, -0.5f, -0.5f},   {1.0f, 1.0f, 1.0f}, {1.0f, 1.0f}},
-    };
-    const std::vector<uint16_t> indices = {
-        0, 1, 2,
-        2, 3, 0,
-        4, 5, 6,
-        6, 7, 4,
-        8, 9, 10,
-        10, 11, 8,
-        12, 13, 14,
-        14, 15, 12,
-        16, 17, 18,
-        18, 19, 16,
-        20, 21, 22,
-        22, 23, 20,
-    };
-    auto vertex_buffer_size = (VkDeviceSize)(sizeof(vertices[0]) * vertices.size());
-    auto staging_vertex_buffer = context->acquire_staging_buffer(
-        vertex_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY
-    );
-    staging_vertex_buffer.update(vertices.data(), vertex_buffer_size);
-    vertex_buffer = context->acquire_buffer(
-        vertex_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
-    auto index_buffer_size = (uint32_t)(sizeof(indices[0]) * indices.size());
-    auto staging_index_buffer = context->acquire_staging_buffer(
-        index_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY
-    );
-    staging_index_buffer.update(indices.data(), index_buffer_size);
-    index_buffer = context->acquire_buffer(
-        vertex_buffer_size,
-        VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
-    cmd.copy_buffer(staging_vertex_buffer, vertex_buffer, vertex_buffer_size);
-    cmd.copy_buffer(staging_index_buffer, index_buffer, index_buffer_size);
-
-    int  width, height, channels;
-    stbi_uc* pixels = stbi_load("./assets/textures/texture.jpg", &width, &height, &channels, STBI_rgb_alpha);
-
-    if (pixels == nullptr) {
-        throw std::runtime_error("Unable to load texture.");
-    }
-
-    VkDeviceSize image_size = width * height * 4;
-
-    image = context->acquire_image(
-        { (uint32_t)width, (uint32_t)height, (uint32_t)1 },
-        VK_FORMAT_R8G8B8A8_SRGB,
+    default_sampler = context->acquire_sampler(VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_FILTER_LINEAR);
+    uint32_t white_pixel = std::numeric_limits<uint32_t>::max();
+    std::vector<uint32_t> white_pixels(1 * 1, white_pixel);
+    white_image = context->acquire_image(
+        { 1, 1, 1 },
+        VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY
     );
-    auto staging_image_buffer = context->acquire_staging_buffer(
-        image_size,
+    auto white_staging_buffer = context->acquire_staging_buffer(
+        1 * 1 * 4,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         VMA_MEMORY_USAGE_CPU_ONLY
     );
-    staging_image_buffer.update((void*)pixels, image_size);
+    white_staging_buffer.update(white_pixels.data(), 1 * 1 * 4);
     cmd.image_barrier(
-        image,
+        white_image,
         VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
@@ -271,9 +137,9 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
         VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_ACCESS_TRANSFER_WRITE_BIT
     );
-    cmd.copy_buffer_to_image(staging_image_buffer, image, { (uint32_t)width, (uint32_t)height, (uint32_t)1 });
+    cmd.copy_buffer_to_image(white_staging_buffer, white_image, { (uint32_t)1, (uint32_t)1, (uint32_t)1 });
     cmd.image_barrier(
-        image,
+        white_image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_PIPELINE_STAGE_TRANSFER_BIT,
@@ -281,9 +147,8 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         VK_ACCESS_SHADER_READ_BIT
     );
-    image_view = context->create_image_view(VK_FORMAT_R8G8B8A8_SRGB, image, VK_IMAGE_ASPECT_COLOR_BIT);
-    sampler = context->acquire_sampler(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, VK_FILTER_LINEAR);
-    stbi_image_free(pixels);
+    white_image_view = context->create_image_view(VK_FORMAT_R8G8B8A8_UNORM, white_image, VK_IMAGE_ASPECT_COLOR_BIT);
+    create_scene_resources(cmd);
 }
 
 void Application::process_keyboard_input(GLFWwindow* window, int key_code, int scancode, int action, int mods) {
@@ -483,4 +348,333 @@ void Application::update(float delta) {
         camera_position += world_up * (10.0f * delta * (float)vertical_move);
         camera.set_position(camera_position);
     }
+}
+
+bool Application::load_scene(std::filesystem::path file_path) {
+    std::string err;
+    std::string warn;
+    if (file_path.extension() == ".gltf") {
+        loader.LoadASCIIFromFile(&model, &err, &warn, file_path.string());
+    } else {
+        loader.LoadBinaryFromFile(&model, &err, &warn, file_path.string());
+    }
+    if (!warn.empty()) {
+        std::cout << warn << std::endl;
+    }
+    if (!err.empty()) {
+        std::cerr << err << std::endl;
+        return false;
+    }
+    return true;
+}
+
+void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
+    std::vector<VkBufferUsageFlags> buffer_usages(model.buffers.size(), 0);
+    buffers.resize(model.buffers.size());
+    for (auto& mesh : model.meshes) {
+        for (auto& primitive : mesh.primitives) {
+            if (primitive.indices >= 0) {
+                auto buffer_view_index = model.accessors[primitive.indices].bufferView;
+                auto buffer_index = model.bufferViews[buffer_view_index].buffer;
+                buffer_usages[buffer_index] |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+            }
+            for (auto& key_value : primitive.attributes) {
+                auto buffer_view_index = model.accessors[key_value.second].bufferView;
+                auto buffer_index = model.bufferViews[buffer_view_index].buffer;
+                buffer_usages[buffer_index] |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            }
+        }
+    }
+    for (uint32_t i = 0; i < model.buffers.size(); i++) {
+        auto buffer_size = (VkDeviceSize)model.buffers[i].data.size();
+        auto staging_buffer = context->acquire_staging_buffer(
+            buffer_size,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_ONLY
+        );
+        staging_buffer.update(model.buffers[i].data.data(), buffer_size);
+        buffers[i] = context->acquire_buffer(
+            buffer_size,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | buffer_usages[i],
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+        cmd.copy_buffer(staging_buffer, buffers[i], buffer_size);
+    }
+    texture_images.resize(model.textures.size());
+    texture_image_views.resize(model.textures.size());
+    for (uint32_t i = 0; i < model.textures.size(); i++) {
+        auto& texture = model.textures[i];
+        auto gltf_image = model.images[texture.source];
+        // TODO: get format from bits + component + pixel_type
+        assert(gltf_image.component == 4);
+        auto image_size = (VkDeviceSize)(gltf_image.width * gltf_image.height * gltf_image.component * (gltf_image.bits / 8));
+        VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
+        auto staging_image_buffer = context->acquire_staging_buffer(
+            image_size,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_ONLY
+        );
+        staging_image_buffer.update(gltf_image.image.data(), image_size);
+        auto image = context->acquire_image(
+            { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 },
+            format,
+            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+        cmd.image_barrier(
+            image,
+            VK_IMAGE_LAYOUT_UNDEFINED,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            0,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT
+        );
+        cmd.copy_buffer_to_image(staging_image_buffer, image, { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 });
+        cmd.image_barrier(
+            image,
+            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            VK_ACCESS_SHADER_READ_BIT
+        );
+        texture_images[i] = image;
+        auto image_view = context->create_image_view(
+            format,
+            image,
+            VK_IMAGE_ASPECT_COLOR_BIT
+        );
+        texture_image_views[i] = image_view;
+    }
+    samplers.resize(model.samplers.size());
+    for (uint32_t i = 0; i < model.samplers.size(); i++) {
+        auto gltf_sampler = model.samplers[i];
+        samplers[i] = context->acquire_sampler(
+            gltf_to_sampler_address_mode(gltf_sampler.wrapT),
+            gltf_to_sampler_address_mode(gltf_sampler.wrapR),
+            gltf_to_sampler_address_mode(gltf_sampler.wrapS),
+            gltf_to_filter(gltf_sampler.minFilter),
+            gltf_to_filter(gltf_sampler.magFilter)
+        );
+    }
+}
+
+void Application::draw_model(const tinygltf::Model& model, Morpho::Vulkan::CommandBuffer& cmd) {
+    current_material_index = -1;
+    for (const auto& scene : model.scenes) {
+        draw_scene(model, scene, cmd);
+    }
+}
+
+void Application::draw_scene(const tinygltf::Model& model, const tinygltf::Scene& scene, Morpho::Vulkan::CommandBuffer& cmd) {
+    for (const auto node_index : scene.nodes) {
+        draw_node(model, model.nodes[node_index], cmd, glm::mat4(1.0f));
+    }
+}
+
+void Application::draw_node(
+    const tinygltf::Model& model,
+    const tinygltf::Node& node,
+    Morpho::Vulkan::CommandBuffer& cmd,
+    glm::mat4 parent_to_world
+) {
+    glm::mat4 local_to_world = glm::mat4(1.0f);
+    if (node.matrix.size() == 16) {
+        auto& m = node.matrix;
+        local_to_world = glm::mat4(
+            m[0], m[1], m[2], m[3],
+            m[4], m[5], m[6], m[7],
+            m[8], m[9], m[10], m[11],
+            m[12], m[13], m[14], m[15]
+        );
+    } else {
+        if (node.scale.size() == 3) {
+            auto& s = node.scale;
+            local_to_world = glm::scale(
+                local_to_world,
+                glm::vec3(s[0], s[1], s[2])
+            );
+        }
+        if (node.rotation.size() == 4) {
+            auto& r = node.rotation;
+            auto q = glm::quat((float)r[0], (float)r[1], (float)r[2], (float)r[3]);
+            local_to_world = glm::mat4(q) * local_to_world;
+        }
+        if (node.translation.size() == 3) {
+            auto& t = node.translation;
+            local_to_world = glm::translate(
+                local_to_world,
+                glm::vec3(t[0], t[1], t[2])
+            );
+        }
+    }
+    local_to_world = parent_to_world * local_to_world;
+    if (node.mesh >= 0) {
+        auto uniform_buffer = context->acquire_staging_buffer(
+            sizeof(UniformBufferObject),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VMA_MEMORY_USAGE_CPU_ONLY
+        );
+        UniformBufferObject mvp;
+        mvp.model = local_to_world;
+        mvp.view = camera.get_view();
+        mvp.proj = camera.get_projection();
+        uniform_buffer.update(&mvp, sizeof(UniformBufferObject));
+        cmd.set_uniform_buffer(0, 0, uniform_buffer, 0, sizeof(UniformBufferObject));
+        draw_mesh(model, model.meshes[node.mesh], cmd);
+    }
+    for (uint32_t i = 0; i < node.children.size(); i++) {
+        draw_node(model, model.nodes[node.children[i]], cmd, local_to_world);
+    }
+}
+
+void Application::draw_mesh(
+    const tinygltf::Model& model,
+    const tinygltf::Mesh& mesh,
+    Morpho::Vulkan::CommandBuffer& cmd
+) {
+    for (auto& primitive : mesh.primitives) {
+        draw_primitive(model, primitive, cmd);
+    }
+}
+
+void Application::draw_primitive(
+    const tinygltf::Model& model,
+    const tinygltf::Primitive& primitive,
+    Morpho::Vulkan::CommandBuffer& cmd
+) {
+    if (primitive.material < 0) {
+        std::cout << "Primitive with no material" << std::endl;
+        return;
+    }
+    uint32_t current_binding = 0;
+    if (primitive.material != current_material_index) {
+        auto& material = model.materials[primitive.material];
+        cmd.clear_vertex_attribute_descriptions();
+        cmd.clear_vertex_binding_descriptions();
+        for (auto& key_value : primitive.attributes) {
+            auto& attribute_name = key_value.first;
+            auto accessor_index = key_value.second;
+            auto& accessor = model.accessors[accessor_index];
+            auto& buffer_view = model.bufferViews[accessor.bufferView];
+            auto location = attribute_name_to_location.find(attribute_name);
+            if (location == attribute_name_to_location.end()) {
+                continue;
+            }
+            cmd.add_vertex_attribute_description(
+                current_binding,
+                (*location).second,
+                gltf_to_format(accessor.type, accessor.componentType),
+                0
+            );
+            cmd.add_vertex_binding_description(
+                current_binding++,
+                accessor.ByteStride(buffer_view),
+                VK_VERTEX_INPUT_RATE_VERTEX
+            );
+        }
+        auto texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
+        auto base_color_image_view = texture_index < 0 ? white_image_view : texture_image_views[texture_index];
+        auto sampler_index = texture_index < 0 ? -1 : model.textures[texture_index].sampler;
+        auto sampler = sampler_index < 0 ? default_sampler : samplers[sampler_index];
+        cmd.set_combined_image_sampler(0, 1, base_color_image_view, sampler);
+        auto base_color_factor = glm::vec4(
+            material.pbrMetallicRoughness.baseColorFactor[0],
+            material.pbrMetallicRoughness.baseColorFactor[1],
+            material.pbrMetallicRoughness.baseColorFactor[2],
+            material.pbrMetallicRoughness.baseColorFactor[3]
+        );
+        auto base_color_factor_buffer = context->acquire_staging_buffer(
+            sizeof(base_color_factor),
+            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+            VMA_MEMORY_USAGE_CPU_TO_GPU
+        );
+        base_color_factor_buffer.update(&base_color_factor, sizeof(base_color_factor));
+        cmd.set_uniform_buffer(0, 2, base_color_factor_buffer, 0, sizeof(base_color_factor));
+        current_material_index = primitive.material;
+    }
+    current_binding = 0;
+    for (auto& key_value : primitive.attributes) {
+        if (attribute_name_to_location.find(key_value.first) == attribute_name_to_location.end()) {
+            continue;
+        }
+        auto& attribute_name = key_value.first;
+        auto accessor_index = key_value.second;
+        auto& accessor = model.accessors[accessor_index];
+        auto& buffer_view = model.bufferViews[accessor.bufferView];
+        cmd.bind_vertex_buffer(
+            buffers[buffer_view.buffer],
+            current_binding++,
+            accessor.byteOffset + buffer_view.byteOffset
+        );
+    }
+    if (primitive.indices >= 0) {
+        auto& accessor = model.accessors[primitive.indices];
+        auto& buffer_view = model.bufferViews[accessor.bufferView];
+        auto index_type = gltf_to_index_type(accessor.type, accessor.componentType);
+        auto index_type_size = (uint32_t)tinygltf::GetComponentSizeInBytes(accessor.componentType);
+        auto index_count = (uint32_t)accessor.count;
+        cmd.bind_index_buffer(
+            buffers[buffer_view.buffer],
+            index_type,
+            accessor.byteOffset + buffer_view.byteOffset
+        );
+        cmd.draw_indexed(
+            index_count,
+            1,
+            0,
+            0,
+            0
+        );
+    }
+}
+
+struct hash_pair {
+    template <class T1, class T2>
+    size_t operator()(const std::pair<T1, T2>& p) const
+    {
+        auto first_hash = std::hash<T1>{}(p.first);
+        auto second_hash = std::hash<T2>{}(p.second);
+        return first_hash ^ second_hash;
+    }
+};
+
+VkFormat Application::gltf_to_format(int type, int component_type) {
+    static const std::unordered_map<std::pair<int, int>, VkFormat, hash_pair> map = {
+        {{TINYGLTF_TYPE_VEC3, TINYGLTF_COMPONENT_TYPE_FLOAT}, VK_FORMAT_R32G32B32_SFLOAT},
+        {{TINYGLTF_TYPE_VEC2, TINYGLTF_COMPONENT_TYPE_FLOAT}, VK_FORMAT_R32G32_SFLOAT},
+    };
+    return map.at(std::make_pair(type, component_type));
+}
+
+VkIndexType Application::gltf_to_index_type(int type, int component_type) {
+    assert(type == TINYGLTF_TYPE_SCALAR);
+    static const std::unordered_map<int, VkIndexType> map = {
+        {TINYGLTF_COMPONENT_TYPE_UNSIGNED_SHORT, VK_INDEX_TYPE_UINT16},
+        {TINYGLTF_COMPONENT_TYPE_UNSIGNED_INT, VK_INDEX_TYPE_UINT32},
+    };
+    return map.at(component_type);
+}
+
+VkFilter Application::gltf_to_filter(int filter) {
+    static const std::unordered_map<int, VkFilter> map = {
+        {TINYGLTF_TEXTURE_FILTER_NEAREST, VK_FILTER_NEAREST},
+        {TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_NEAREST, VK_FILTER_NEAREST},
+        {TINYGLTF_TEXTURE_FILTER_NEAREST_MIPMAP_LINEAR, VK_FILTER_NEAREST},
+        {TINYGLTF_TEXTURE_FILTER_LINEAR, VK_FILTER_LINEAR},
+        {TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST, VK_FILTER_LINEAR},
+        {TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR, VK_FILTER_LINEAR},
+    };
+    return map.at(filter);
+}
+
+VkSamplerAddressMode Application::gltf_to_sampler_address_mode(int address_mode) {
+    static const std::unordered_map<int, VkSamplerAddressMode> map = {
+        {TINYGLTF_TEXTURE_WRAP_CLAMP_TO_EDGE, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE},
+        {TINYGLTF_TEXTURE_WRAP_REPEAT, VK_SAMPLER_ADDRESS_MODE_REPEAT},
+        {TINYGLTF_TEXTURE_WRAP_MIRRORED_REPEAT, VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT},
+    };
+    return map.at(address_mode);
 }
