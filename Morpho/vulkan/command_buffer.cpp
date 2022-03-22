@@ -225,4 +225,36 @@ void CommandBuffer::set_cull_mode(VkCullModeFlags cull_mode) {
     pipeline_state.set_cull_mode(cull_mode);
 }
 
+void CommandBuffer::buffer_barrier(
+    const Buffer& buffer,
+    VkPipelineStageFlags src_stages,
+    VkAccessFlags src_access,
+    VkPipelineStageFlags dst_stages,
+    VkAccessFlags dst_access,
+    VkDeviceSize offset,
+    VkDeviceSize size
+) {
+    VkBufferMemoryBarrier barrier{};
+    barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    barrier.buffer = buffer.get_buffer();
+    barrier.srcAccessMask = src_access;
+    barrier.dstAccessMask = dst_access;
+    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+    barrier.offset = offset;
+    barrier.size = size;
+    vkCmdPipelineBarrier(
+        command_buffer,
+        src_stages,
+        dst_stages,
+        0,
+        0,
+        nullptr,
+        1,
+        &barrier,
+        0,
+        nullptr
+    );
+}
+
 }

@@ -42,6 +42,15 @@ public:
         VkPipelineStageFlags dst_stages,
         VkAccessFlags dst_access
     );
+    void buffer_barrier(
+        const Buffer& buffer,
+        VkPipelineStageFlags src_stages,
+        VkAccessFlags src_access,
+        VkPipelineStageFlags dst_stages,
+        VkAccessFlags dst_access,
+        VkDeviceSize offset,
+        VkDeviceSize size
+    );
 
     // Will turn into set_shader
     void add_shader(const Shader shader);

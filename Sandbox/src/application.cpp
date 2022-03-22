@@ -399,6 +399,15 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             VMA_MEMORY_USAGE_GPU_ONLY
         );
         cmd.copy_buffer(staging_buffer, buffers[i], buffer_size);
+        cmd.buffer_barrier(
+            buffers[i],
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+            VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
+            0,
+            VK_WHOLE_SIZE
+        );
     }
     texture_images.resize(model.textures.size());
     texture_image_views.resize(model.textures.size());
