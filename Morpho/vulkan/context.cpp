@@ -923,4 +923,8 @@ Sampler Context::acquire_sampler(
     return Sampler(sampler);
 }
 
+VkFormat Context::get_swapchain_format() const {
+    return swapchain_format;
+}
+
 }

@@ -90,6 +90,7 @@ public:
     // public WSI stuff
     ImageView get_swapchain_image_view() const;
     VkExtent2D get_swapchain_extent() const;
+    VkFormat get_swapchain_format() const;
     // end of WSI stuff
 
 private:
