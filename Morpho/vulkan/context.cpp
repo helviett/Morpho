@@ -1,4 +1,6 @@
 #include "context.hpp"
+#include <cassert>
+#include <optional>
 
 namespace Morpho::Vulkan {
 
@@ -379,104 +381,25 @@ void Context::submit(CommandBuffer command_buffer) {
     vkQueueSubmit(graphics_queue, 1, &info, frame_context.render_fence);
 }
 
-RenderPass Context::acquire_render_pass(RenderPassInfo& render_pass_info) {
-    VkSubpassDependency dependency{};
-    dependency.srcSubpass = VK_SUBPASS_EXTERNAL;
-    dependency.dstSubpass = 0;
-
-    uint32_t desciption_count = 0;
-    VkAttachmentDescription descriptions[2];
-    uint32_t ref_count = 0;
-    VkAttachmentReference refs[2];
-    bool has_depth_attachment = render_pass_info.depth_attachment_image_view.get_image_view() != VK_NULL_HANDLE;
-
-
-    if (render_pass_info.color_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
-        descriptions[desciption_count].flags = 0;
-        descriptions[desciption_count].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        descriptions[desciption_count].finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
-        descriptions[desciption_count].format = swapchain_format;
-        descriptions[desciption_count].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        descriptions[desciption_count].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        descriptions[desciption_count].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        descriptions[desciption_count].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        descriptions[desciption_count].samples = VK_SAMPLE_COUNT_1_BIT;
-        refs[ref_count].attachment = desciption_count;
-        refs[ref_count].layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        desciption_count++;
-        ref_count++;
-        dependency.srcStageMask |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependency.dstStageMask |= VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        dependency.dstAccessMask |= VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-    }
-
-    if (render_pass_info.depth_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
-        descriptions[desciption_count].flags = 0;
-        descriptions[desciption_count].initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        descriptions[desciption_count].finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        descriptions[desciption_count].format = VK_FORMAT_D32_SFLOAT; // get_image_view()(.get_format() || get_image().get_format())
-        descriptions[desciption_count].stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
-        descriptions[desciption_count].stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        descriptions[desciption_count].loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
-        descriptions[desciption_count].storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-        descriptions[desciption_count].samples = VK_SAMPLE_COUNT_1_BIT;
-        refs[ref_count].attachment = desciption_count;
-        refs[ref_count].layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        dependency.srcStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dependency.dstStageMask |= VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-        dependency.dstAccessMask |= VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-        desciption_count++;
-        ref_count++;
-    }
-
-    VkSubpassDescription subpass{};
-    subpass.colorAttachmentCount = has_depth_attachment ? ref_count - 1 : ref_count;
-    subpass.pColorAttachments = refs;
-    subpass.pDepthStencilAttachment = has_depth_attachment ? &refs[ref_count - 1] : nullptr;
-
-    VkRenderPassCreateInfo create_info{};
-    create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
-    create_info.attachmentCount = desciption_count;
-    create_info.pAttachments = descriptions;
-    create_info.subpassCount = 1;
-    create_info.pSubpasses = &subpass;
-    create_info.dependencyCount = 1;
-    create_info.pDependencies = &dependency;
-
-    VkRenderPass render_pass;
-
-    VK_CHECK(vkCreateRenderPass(device, &create_info, nullptr, &render_pass), "Unable to create render pass.")
-
-    get_current_frame_context().destructors.push_back([=] {
-        vkDestroyRenderPass(device, render_pass, nullptr);
-    });
-
-    return RenderPass(render_pass);
-}
-
-Framebuffer Context::acquire_framebuffer(RenderPass render_pass, RenderPassInfo& render_pass_info) {
+Framebuffer Context::acquire_framebuffer(const FramebufferInfo& info) {
     // Need abstraction over VkImage and VkImageView.
     // For now assume image_view is swapchain image view.
-    uint32_t attachment_count = 0;
-    VkImageView attachments[2] = { VK_NULL_HANDLE };
-    if (render_pass_info.color_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
-        attachments[attachment_count++] = render_pass_info.color_attachment_image_view.get_image_view();
-    }
-    if (render_pass_info.depth_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
-        attachments[attachment_count++] = render_pass_info.depth_attachment_image_view.get_image_view();
+    VkImageView image_views[FramebufferInfo::max_attachment_count];
+    for (uint32_t i = 0; i < info.attachment_count; i++) {
+        image_views[i] = info.attachments[i].get_image_view();
     }
 
-    VkFramebufferCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
-    info.attachmentCount = attachment_count;
-    info.pAttachments = attachments;
-    info.width = swapchain_extent.width;
-    info.height = swapchain_extent.height;
-    info.layers = 1;
-    info.renderPass = render_pass.get_vulkan_handle();
+    VkFramebufferCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+    create_info.attachmentCount = info.attachment_count;
+    create_info.pAttachments = image_views;
+    create_info.width = info.extent.width;
+    create_info.height = info.extent.height;
+    create_info.layers = 1;
+    create_info.renderPass = info.layout.get_vulkan_handle();
 
     VkFramebuffer framebuffer;
-    vkCreateFramebuffer(device, &info, nullptr, &framebuffer);
+    vkCreateFramebuffer(device, &create_info, nullptr, &framebuffer);
 
     get_current_frame_context().destructors.push_back([=] {
         vkDestroyFramebuffer(device, framebuffer, nullptr);
@@ -925,6 +848,121 @@ Sampler Context::acquire_sampler(
 
 VkFormat Context::get_swapchain_format() const {
     return swapchain_format;
+}
+
+VkRenderPass Context::create_render_pass(const RenderPassInfo& info) {
+    assert(info.attachent_count == info.layout.get_info().attachent_count);
+    VkRenderPassCreateInfo create_info{};
+    create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
+    VkAttachmentDescription attachment_descriptions[RenderPassInfo::max_attachment_count];
+    VkAttachmentReference references[RenderPassInfo::max_attachment_count];
+    uint32_t reference_index = 0;
+    uint32_t preserve_indicies[RenderPassInfo::max_attachment_count];
+    uint32_t preserve_index = 0;
+    create_info.attachmentCount = info.attachent_count;
+    create_info.pAttachments = attachment_descriptions;
+    const auto& layout_info = info.layout.get_info();
+    for (uint32_t i = 0; i < info.attachent_count; i++) {
+        auto& desc = attachment_descriptions[i];
+        const auto& attachment_info = info.attachments[i];
+        const auto& layout_attachment_info = layout_info.attachments[i];
+        desc.flags = 0;
+        desc.format = layout_attachment_info.format;
+        desc.samples = VK_SAMPLE_COUNT_1_BIT;
+        desc.loadOp = attachment_info.load_op;
+        desc.storeOp = attachment_info.store_op;
+        desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+        desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        desc.finalLayout = attachment_info.final_layout;
+    }
+    VkSubpassDescription subpass{};
+    create_info.subpassCount = 1;
+    create_info.pSubpasses = &subpass;
+    const auto& subpass_info = layout_info.subpass;
+    subpass.flags = 0;
+    subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
+    subpass.inputAttachmentCount = 0;
+    subpass.pInputAttachments = nullptr;
+    subpass.colorAttachmentCount = subpass_info.color_attachment_count;
+    subpass.pColorAttachments = &references[reference_index];
+    for (uint32_t j = 0; j < subpass_info.color_attachment_count; j++) {
+        auto attachment_index = subpass_info.color_attachments[j];
+        auto& attachment_info = info.attachments[attachment_index];
+        auto& reference = references[reference_index++];
+        reference.attachment = attachment_index;
+        reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+    }
+    subpass.pResolveAttachments = nullptr;
+    subpass.pDepthStencilAttachment = nullptr;
+    if (subpass_info.depth_attachment.has_value()) {
+        subpass.pDepthStencilAttachment = &references[reference_index];
+        auto& reference = references[reference_index++];
+        reference.attachment = subpass_info.depth_attachment.value();
+        // TODO: How to determine if it's readonly?
+        reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+    }
+    subpass.preserveAttachmentCount = info.attachent_count
+        - subpass_info.color_attachment_count
+        - (subpass_info.depth_attachment.has_value() ? 1 : 0);
+    if (subpass.preserveAttachmentCount != 0) {
+        subpass.pPreserveAttachments = &preserve_indicies[preserve_index];
+        auto first_preserve_index = preserve_index;
+        const uint32_t* color_attachments = subpass_info.color_attachments;
+        const uint32_t* color_attachments_end = color_attachments + subpass_info.color_attachment_count;
+
+        for (uint32_t i = 0; i < info.attachent_count; i++) {
+            if (
+                i != subpass_info.depth_attachment
+                && std::find(color_attachments, color_attachments_end, i) == color_attachments_end
+            ) {
+                preserve_indicies[preserve_index++] = i;
+            }
+        }
+        assert(preserve_index - first_preserve_index == subpass.preserveAttachmentCount);
+    }
+    VkRenderPass render_pass;
+    VK_CHECK(
+        vkCreateRenderPass(device, &create_info, nullptr, &render_pass),
+        "Unable to create render pass."
+    );
+    return render_pass;
+}
+
+RenderPassLayout Context::acquire_render_pass_layout(const RenderPassLayoutInfo& info) {
+    RenderPassInfo render_pass_info;
+    render_pass_info.attachent_count = info.attachent_count;
+    for (uint32_t i = 0; i < info.attachent_count; i++) {
+        auto& attachment = render_pass_info.attachments[i];
+        // final_layout is not a part of Render Pass compatibility,
+        // but still have to fill it in some way.
+        // Otherwise validation layers will give erros.
+        switch (info.attachments[i].format)
+        {
+        case VK_FORMAT_D32_SFLOAT:
+            attachment.final_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+            break;
+        default:
+            attachment.final_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            break;
+        }
+        attachment.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+        attachment.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+    }
+    render_pass_info.layout = RenderPassLayout(info);
+    auto render_pass = create_render_pass(render_pass_info);
+    get_current_frame_context().destructors.push_back([=] {
+        vkDestroyRenderPass(device, render_pass, nullptr);
+    });
+    return RenderPassLayout(info, render_pass);
+}
+
+RenderPass Context::acquire_render_pass(const RenderPassInfo& info) {
+    auto render_pass = create_render_pass(info);
+    get_current_frame_context().destructors.push_back([=] {
+        vkDestroyRenderPass(device, render_pass, nullptr);
+    });
+    return RenderPass(render_pass);
 }
 
 }

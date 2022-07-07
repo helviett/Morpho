@@ -9,7 +9,7 @@
 #include <array>
 #include <functional>
 #include "command_buffer.hpp"
-#include "render_pass_info.hpp"
+#include "render_pass.hpp"
 #include "render_pass.hpp"
 #include "framebuffer.hpp"
 #include "shader.hpp"
@@ -21,6 +21,7 @@
 #include "image.hpp"
 #include "image_view.hpp"
 #include "sampler.hpp"
+#include "render_pass_layout.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -59,8 +60,9 @@ public:
     void submit(CommandBuffer command_buffer);
     void flush(CommandBuffer command_buffer);
     Shader acquire_shader(char* data, uint32_t size);
-    RenderPass acquire_render_pass(RenderPassInfo& render_pass_info);
-    Framebuffer acquire_framebuffer(RenderPass render_pass, RenderPassInfo& render_pass_info);
+    RenderPassLayout acquire_render_pass_layout(const RenderPassLayoutInfo& info);
+    RenderPass acquire_render_pass(const RenderPassInfo& info);
+    Framebuffer acquire_framebuffer(const FramebufferInfo& info);
     Pipeline acquire_pipeline(PipelineState &info, RenderPass& render_pass, uint32_t subpass);
     // Keep Vulkan and VMA flags for now for simplicity and prototyping speed.
     Buffer acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
@@ -129,6 +131,7 @@ private:
     VkPhysicalDevice select_gpu();
     VkResult try_create_instance(std::vector<const char*>& extensions, std::vector<const char*>& layers);
     VkDebugUtilsMessengerCreateInfoEXT get_default_messenger_create_info();
+    VkRenderPass create_render_pass(const RenderPassInfo& info);
     static uint32_t score_gpu(VkPhysicalDevice gpu);
     VkResult try_create_device();
     void retrieve_queues();

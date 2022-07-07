@@ -1,6 +1,5 @@
 #pragma once
 #include <vulkan/vulkan.h>
-#include "render_pass_info.hpp"
 #include "render_pass.hpp"
 #include "pipeline_state.hpp"
 #include "buffer.hpp"
@@ -10,6 +9,7 @@
 #include "descriptor_set.hpp"
 #include "limits.hpp"
 #include "image.hpp"
+#include "framebuffer.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -19,7 +19,6 @@ class CommandBuffer {
 public:
     CommandBuffer(VkCommandBuffer command_buffer, Context* context);
     VkCommandBuffer get_vulkan_handle() const;
-    void begin_render_pass(RenderPassInfo& render_pass_info);
     void end_render_pass();
     void bind_vertex_buffer(Buffer vertex_buffer, uint32_t binding, VkDeviceSize offset = 0);
     void bind_index_buffer(Buffer index_buffer, VkIndexType index_type, VkDeviceSize offset = 0);
@@ -50,6 +49,12 @@ public:
         VkAccessFlags dst_access,
         VkDeviceSize offset,
         VkDeviceSize size
+    );
+    void begin_render_pass(
+        RenderPass render_pass,
+        Framebuffer framebuffer,
+        VkRect2D render_area,
+        std::initializer_list<VkClearValue> clear_values
     );
 
     // Will turn into set_shader

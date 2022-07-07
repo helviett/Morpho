@@ -12,30 +12,6 @@ CommandBuffer::CommandBuffer(VkCommandBuffer command_buffer, Context* context) {
     this->context = context;
 }
 
-void CommandBuffer::begin_render_pass(RenderPassInfo& render_pass_info) {
-    current_render_pass = context->acquire_render_pass(render_pass_info);
-    auto framebuffer = context->acquire_framebuffer(current_render_pass, render_pass_info);
-    uint32_t clear_value_count = 0;
-    VkClearValue clear_values[2];
-    if (render_pass_info.color_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
-        clear_values[clear_value_count++] = render_pass_info.color_attachment_clear_value;
-    }
-    if (render_pass_info.depth_attachment_image_view.get_image_view() != VK_NULL_HANDLE) {
-        clear_values[clear_value_count++] = render_pass_info.depth_attachment_clear_value;
-    }
-
-    VkRenderPassBeginInfo begin_info{};
-    begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    begin_info.framebuffer = framebuffer.get_vulkan_handle();
-    begin_info.clearValueCount = clear_value_count;
-    begin_info.pClearValues =clear_values;
-    begin_info.renderPass = current_render_pass.get_vulkan_handle();
-    begin_info.renderArea.offset = { 0, 0 };
-    begin_info.renderArea.extent = context->get_swapchain_extent();
-
-    vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
-}
-
 void CommandBuffer::end_render_pass() {
     vkCmdEndRenderPass(command_buffer);
     current_render_pass = RenderPass(VK_NULL_HANDLE);
@@ -273,6 +249,23 @@ void CommandBuffer::reset() {
         sets[i] = ResourceSet();
     }
     pipeline_state = PipelineState();
+}
+
+void CommandBuffer::begin_render_pass(
+    RenderPass render_pass,
+    Framebuffer framebuffer,
+    VkRect2D render_area,
+    std::initializer_list<VkClearValue> clear_values
+) {
+    VkRenderPassBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    begin_info.clearValueCount = clear_values.size();
+    begin_info.pClearValues = clear_values.begin();
+    begin_info.renderPass = render_pass.get_vulkan_handle();
+    begin_info.framebuffer = framebuffer.get_vulkan_handle();
+    begin_info.renderArea = render_area;
+    current_render_pass = render_pass;
+    vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 }
 
 }
