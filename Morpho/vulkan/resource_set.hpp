@@ -12,7 +12,12 @@ public:
     ResourceSet();
 
     void set_uniform_buffer(uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range);
-    void set_combined_image_sampler(uint32_t binding, ImageView image_view, Sampler sampler);
+    void set_combined_image_sampler(
+        uint32_t binding,
+        ImageView image_view,
+        Sampler sampler,
+        VkImageLayout image_layout
+    );
     const ResourceBinding& get_binding(uint32_t binding) const;
     bool get_is_layout_dirty() const;
     bool get_is_contents_dirty() const;

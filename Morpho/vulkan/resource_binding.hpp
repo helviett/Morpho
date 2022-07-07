@@ -17,7 +17,7 @@ class ResourceBinding {
 public:
     ResourceBinding();
     static ResourceBinding from_uniform_buffer(Buffer buffer, VkDeviceSize offset, VkDeviceSize range);
-    static ResourceBinding from_combined_image_sampler(ImageView image_view, Sampler sampler);
+    static ResourceBinding from_combined_image_sampler(ImageView image_view, VkImageLayout image_layout, Sampler sampler);
 
     ResourceType get_resource_type() const;
     const VkDescriptorBufferInfo* get_buffer_info() const;

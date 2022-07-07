@@ -57,7 +57,13 @@ public:
     void add_vertex_attribute_description(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset);
     void add_vertex_binding_description(uint32_t binding, uint32_t stride, VkVertexInputRate input_rate);
     void set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range);
-    void set_combined_image_sampler(uint32_t set, uint32_t binding, ImageView image_view, Sampler sampler);
+    void set_combined_image_sampler(
+        uint32_t set,
+        uint32_t binding,
+        ImageView image_view,
+        Sampler sampler,
+        VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+    );
     void set_depth_state(VkBool32 test_enable, VkBool32 write_enable, VkCompareOp compare_op);
     void clear_vertex_attribute_descriptions();
     void clear_vertex_binding_descriptions();

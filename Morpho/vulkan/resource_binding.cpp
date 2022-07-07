@@ -13,10 +13,10 @@ ResourceBinding ResourceBinding::from_uniform_buffer(Buffer buffer, VkDeviceSize
     return binding;
 }
 
-ResourceBinding ResourceBinding::from_combined_image_sampler(ImageView image_view, Sampler sampler) {
+ResourceBinding ResourceBinding::from_combined_image_sampler(ImageView image_view, VkImageLayout image_layout, Sampler sampler) {
     ResourceBinding binding;
     binding.resouce_type = ResourceType::CombinedImageSampler;
-    binding.resource_info.image_info.imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+    binding.resource_info.image_info.imageLayout = image_layout;
     binding.resource_info.image_info.imageView = image_view.get_image_view();
     binding.resource_info.image_info.sampler = sampler.get_sampler();
     return binding;

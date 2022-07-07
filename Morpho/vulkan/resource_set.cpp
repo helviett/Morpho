@@ -15,14 +15,19 @@ void ResourceSet::set_uniform_buffer(uint32_t binding, Buffer buffer, VkDeviceSi
     bindings[binding] = ResourceBinding::from_uniform_buffer(buffer, offset, range);
 }
 
-void ResourceSet::set_combined_image_sampler(uint32_t binding, ImageView image_view, Sampler sampler) {
+void ResourceSet::set_combined_image_sampler(
+    uint32_t binding,
+    ImageView image_view,
+    Sampler sampler,
+    VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+) {
     bool is_resource_type_differ = bindings[binding].get_resource_type() != ResourceType::UniformBuffer;
     is_layout_dirty |= is_resource_type_differ;
     auto binding_dirty = is_resource_type_differ
         || image_view.get_image_view() != bindings[binding].get_image_info()->imageView
         || sampler.get_sampler() != bindings[binding].get_image_info()->sampler
-        || VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL != bindings[binding].get_image_info()->imageLayout;
-    bindings[binding] = ResourceBinding::from_combined_image_sampler(image_view, sampler);
+        || image_layout != bindings[binding].get_image_info()->imageLayout;
+    bindings[binding] = ResourceBinding::from_combined_image_sampler(image_view, image_layout, sampler);
 }
 
 const ResourceBinding& ResourceSet::get_binding(uint32_t binding) const {
