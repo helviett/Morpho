@@ -263,4 +263,16 @@ void CommandBuffer::buffer_barrier(
     );
 }
 
+
+void CommandBuffer::set_topology(VkPrimitiveTopology topology) {
+    pipeline_state.set_topology(topology);
+}
+
+void CommandBuffer::reset() {
+    for (size_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
+        sets[i] = ResourceSet();
+    }
+    pipeline_state = PipelineState();
+}
+
 }

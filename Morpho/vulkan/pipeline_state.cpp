@@ -113,4 +113,12 @@ VkCullModeFlags PipelineState::get_cull_mode() const {
     return cull_mode;
 }
 
+void PipelineState::set_topology(VkPrimitiveTopology topology) {
+    this->topology = topology;
+}
+
+VkPrimitiveTopology PipelineState::get_topology() const {
+    return topology;
+}
+
 }

@@ -541,7 +541,7 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
     input_assembly_state.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
     input_assembly_state.pNext = nullptr;
     input_assembly_state.flags = 0;
-    input_assembly_state.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    input_assembly_state.topology = pipeline_state.get_topology();
     input_assembly_state.primitiveRestartEnable = VK_FALSE;
 
     // VkPipelineTessellationStateCreateInfo tesselation_state{};

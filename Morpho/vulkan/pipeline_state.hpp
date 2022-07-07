@@ -34,6 +34,8 @@ public:
     VkFrontFace get_front_face() const;
     void set_cull_mode(VkCullModeFlags cull_mode);
     VkCullModeFlags get_cull_mode() const;
+    void set_topology(VkPrimitiveTopology topology);
+    VkPrimitiveTopology get_topology() const;
 private:
     bool is_dirty = true;
     Shader shaders[2];
@@ -42,10 +44,11 @@ private:
     uint32_t attribute_description_count = 0;
     VkVertexInputBindingDescription binding_descriptions[Limits::MAX_VERTEX_INPUT_BINDING_COUNT];
     uint32_t binding_description_count = 0;
-    VkPipelineDepthStencilStateCreateInfo depth_stencil_state;
+    VkPipelineDepthStencilStateCreateInfo depth_stencil_state = {};
     PipelineLayout pipeline_layout;
     VkFrontFace front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
+    VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
 };
 
 }

@@ -69,6 +69,8 @@ public:
     void clear_vertex_binding_descriptions();
     void set_front_face(VkFrontFace front_face);
     void set_cull_mode(VkCullModeFlags cull_mode);
+    void set_topology(VkPrimitiveTopology topology);
+    void reset();
 private:
     VkCommandBuffer command_buffer;
     RenderPass current_render_pass = RenderPass(VK_NULL_HANDLE);
