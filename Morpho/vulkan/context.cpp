@@ -816,8 +816,13 @@ void Context::destroy_image_view(ImageView image_view) {
     vkDestroyImageView(device, image_view.get_image_view(), nullptr);
 }
 
-Sampler Context::acquire_sampler(VkSamplerAddressMode address_mode, VkFilter filter) {
-    return acquire_sampler(address_mode, address_mode, address_mode, filter, filter);
+Sampler Context::acquire_sampler(
+    VkSamplerAddressMode address_mode,
+    VkFilter filter,
+    VkBool32 compare_enable,
+    VkCompareOp compare_op
+) {
+    return acquire_sampler(address_mode, address_mode, address_mode, filter, filter, compare_enable, compare_op);
 }
 
 Sampler Context::acquire_sampler(
@@ -825,7 +830,9 @@ Sampler Context::acquire_sampler(
     VkSamplerAddressMode address_mode_v,
     VkSamplerAddressMode address_mode_w,
     VkFilter min_filter,
-    VkFilter mag_filter
+    VkFilter mag_filter,
+    VkBool32 compare_enable,
+    VkCompareOp compare_op
 ) {
     VkSamplerCreateInfo sampler_info{};
     sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -836,7 +843,8 @@ Sampler Context::acquire_sampler(
     sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
     sampler_info.minFilter = min_filter;
     sampler_info.magFilter = mag_filter;
-    sampler_info.compareEnable = VK_FALSE;
+    sampler_info.compareEnable = compare_enable;
+    sampler_info.compareOp = compare_op;
     sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
     sampler_info.maxLod = 0.0f;
     sampler_info.minLod = 0.0f;

@@ -79,13 +79,20 @@ public:
     ImageView create_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect);
     ImageView create_temporary_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect);
     void destroy_image_view(ImageView image_view);
-    Sampler acquire_sampler(VkSamplerAddressMode address_mode, VkFilter filter);
+    Sampler acquire_sampler(
+        VkSamplerAddressMode address_mode,
+        VkFilter filter,
+        VkBool32 compare_enable = VK_FALSE,
+        VkCompareOp compare_op = VK_COMPARE_OP_NEVER
+    );
     Sampler acquire_sampler(
         VkSamplerAddressMode address_mode_u,
         VkSamplerAddressMode address_mode_v,
         VkSamplerAddressMode address_mode_w,
         VkFilter min_filter,
-        VkFilter mag_filter
+        VkFilter mag_filter,
+        VkBool32 compare_enable = VK_FALSE,
+        VkCompareOp compare_op = VK_COMPARE_OP_NEVER
     );
 
 
