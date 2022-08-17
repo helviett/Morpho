@@ -34,6 +34,7 @@ public:
     void copy_buffer_to_image(Buffer source, Image destination, VkExtent3D extent) const;
     void image_barrier(
         const Image& image,
+        VkImageAspectFlags aspect,
         VkImageLayout old_layout,
         VkImageLayout new_layout,
         VkPipelineStageFlags src_stages,

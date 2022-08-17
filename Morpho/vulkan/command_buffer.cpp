@@ -154,6 +154,7 @@ void CommandBuffer::copy_buffer_to_image(Buffer source, Image destination, VkExt
 
 void CommandBuffer::image_barrier(
     const Image& image,
+    VkImageAspectFlags aspect,
     VkImageLayout old_layout,
     VkImageLayout new_layout,
     VkPipelineStageFlags src_stages,
@@ -170,7 +171,7 @@ void CommandBuffer::image_barrier(
     barrier.image = image.get_image();
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+    barrier.subresourceRange.aspectMask = aspect;
     barrier.subresourceRange.levelCount = 1;
     barrier.subresourceRange.layerCount = 1;
     vkCmdPipelineBarrier(
@@ -259,7 +260,7 @@ void CommandBuffer::begin_render_pass(
 ) {
     VkRenderPassBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-    begin_info.clearValueCount = clear_values.size();
+    begin_info.clearValueCount = (uint32_t)clear_values.size();
     begin_info.pClearValues = clear_values.begin();
     begin_info.renderPass = render_pass.get_vulkan_handle();
     begin_info.framebuffer = framebuffer.get_vulkan_handle();
