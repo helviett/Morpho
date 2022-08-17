@@ -269,4 +269,12 @@ void CommandBuffer::begin_render_pass(
     vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 }
 
+void CommandBuffer::enable_depth_bias(float depth_bias_constant_factor, float depth_bias_slope_factor) {
+    pipeline_state.enable_depth_bias(depth_bias_constant_factor, depth_bias_slope_factor);
+}
+
+void CommandBuffer::disable_depth_bias() {
+    pipeline_state.disable_depth_bias();
+}
+
 }

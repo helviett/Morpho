@@ -36,6 +36,11 @@ public:
     VkCullModeFlags get_cull_mode() const;
     void set_topology(VkPrimitiveTopology topology);
     VkPrimitiveTopology get_topology() const;
+    void enable_depth_bias(float depth_bias_constant_factor, float depth_bias_slope_factor);
+    void disable_depth_bias();
+    VkBool32 get_depth_bias_enable() const;
+    float get_depth_bias_constant_factor() const;
+    float get_depth_bias_slope_factor() const;
 private:
     bool is_dirty = true;
     Shader shaders[2];
@@ -49,6 +54,9 @@ private:
     VkFrontFace front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     VkCullModeFlags cull_mode = VK_CULL_MODE_BACK_BIT;
     VkPrimitiveTopology topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkBool32 depth_bias_enable = VK_FALSE;
+    float depth_bias_constant_factor = 0.0;
+    float depth_bias_slope_factor = 0.0;
 };
 
 }

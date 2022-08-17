@@ -76,6 +76,8 @@ public:
     void set_front_face(VkFrontFace front_face);
     void set_cull_mode(VkCullModeFlags cull_mode);
     void set_topology(VkPrimitiveTopology topology);
+    void enable_depth_bias(float depth_bias_constant_factor, float depth_bias_slope_factor);
+    void disable_depth_bias();
     void reset();
 private:
     VkCommandBuffer command_buffer;

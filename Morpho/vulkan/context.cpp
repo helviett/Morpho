@@ -499,7 +499,9 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
     rasterization_state.lineWidth = 1.0f;
     rasterization_state.cullMode = pipeline_state.get_cull_mode();
     rasterization_state.frontFace = pipeline_state.get_front_face();
-    rasterization_state.depthBiasEnable = VK_FALSE;
+    rasterization_state.depthBiasEnable = pipeline_state.get_depth_bias_enable();
+    rasterization_state.depthBiasConstantFactor = pipeline_state.get_depth_bias_constant_factor();
+    rasterization_state.depthBiasSlopeFactor = pipeline_state.get_depth_bias_slope_factor();
 
     VkPipelineMultisampleStateCreateInfo multisample_state{};
     multisample_state.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;

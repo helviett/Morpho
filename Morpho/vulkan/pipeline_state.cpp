@@ -121,4 +121,28 @@ VkPrimitiveTopology PipelineState::get_topology() const {
     return topology;
 }
 
+void PipelineState::enable_depth_bias(float depth_bias_constant_factor, float depth_bias_slope_factor) {
+    depth_bias_enable = VK_TRUE;
+    this->depth_bias_constant_factor = depth_bias_constant_factor;
+    this->depth_bias_slope_factor = depth_bias_slope_factor;
+}
+
+void PipelineState::disable_depth_bias() {
+    depth_bias_enable = VK_FALSE;
+    depth_bias_constant_factor = 0.0f;
+    depth_bias_slope_factor = 0.0f;
+}
+
+VkBool32 PipelineState::get_depth_bias_enable() const {
+    return depth_bias_enable;
+}
+
+float PipelineState::get_depth_bias_constant_factor() const {
+    return depth_bias_constant_factor;
+}
+
+float PipelineState::get_depth_bias_slope_factor() const {
+    return depth_bias_slope_factor;
+}
+
 }
