@@ -23,11 +23,11 @@ void Shader::set_entry_point(const std::string& entry_point) {
 VkShaderStageFlagBits Shader::shader_stage_to_vulkan(ShaderStage stage) {
     switch (stage)
     {
-    case ShaderStage::None:
+    case ShaderStage::NONE:
         throw std::runtime_error("Invalid shader stage.");
-    case ShaderStage::Vertex:
+    case ShaderStage::VERTEX:
         return VK_SHADER_STAGE_VERTEX_BIT;
-    case ShaderStage::Fragment:
+    case ShaderStage::FRAGMENT:
         return VK_SHADER_STAGE_FRAGMENT_BIT;
     default:
         throw std::runtime_error("Not implemented");

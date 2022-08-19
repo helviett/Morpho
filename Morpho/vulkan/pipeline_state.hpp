@@ -15,6 +15,7 @@ public:
     void add_shader(const Shader shader);
     uint32_t get_shader_count() const;
     Shader get_shader(int index) const;
+    void clear_shaders();
     void add_vertex_attribute_description(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset);
     uint32_t get_attribute_description_count() const;
     void add_vertex_binding_description(uint32_t binding, uint32_t stride, VkVertexInputRate input_rate);

@@ -20,6 +20,11 @@ Shader PipelineState::get_shader(int index) const {
     return shaders[index];
 }
 
+void PipelineState::clear_shaders() {
+    shader_count = 0;
+    is_dirty = true;
+}
+
 void PipelineState::add_vertex_attribute_description(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset) {
     is_dirty = true;
     VkVertexInputAttributeDescription desc;

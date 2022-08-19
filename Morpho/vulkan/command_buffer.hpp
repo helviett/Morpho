@@ -60,6 +60,7 @@ public:
 
     // Will turn into set_shader
     void add_shader(const Shader shader);
+    void clear_shaders();
     void add_vertex_attribute_description(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset);
     void add_vertex_binding_description(uint32_t binding, uint32_t stride, VkVertexInputRate input_rate);
     void set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range);

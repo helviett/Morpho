@@ -57,6 +57,11 @@ void CommandBuffer::add_shader(const Shader shader) {
     pipeline_state.add_shader(shader);
 }
 
+
+void CommandBuffer::clear_shaders() {
+    pipeline_state.clear_shaders();
+}
+
 void CommandBuffer::add_vertex_attribute_description(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset) {
     pipeline_state.add_vertex_attribute_description(binding, location, format, offset);
 }

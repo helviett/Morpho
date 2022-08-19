@@ -5,9 +5,10 @@
 namespace Morpho::Vulkan {
 
 enum class ShaderStage {
-    None = 0,
-    Vertex = 1,
-    Fragment = 2,
+    NONE = 0,
+    VERTEX = 1,
+    FRAGMENT = 2,
+    MAX_VALUE = FRAGMENT,
 };
 
 class Shader {
