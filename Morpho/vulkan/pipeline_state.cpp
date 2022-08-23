@@ -119,6 +119,7 @@ VkCullModeFlags PipelineState::get_cull_mode() const {
 }
 
 void PipelineState::set_topology(VkPrimitiveTopology topology) {
+    is_dirty = true;
     this->topology = topology;
 }
 
@@ -127,15 +128,46 @@ VkPrimitiveTopology PipelineState::get_topology() const {
 }
 
 void PipelineState::enable_depth_bias(float depth_bias_constant_factor, float depth_bias_slope_factor) {
+    is_dirty = true;
     depth_bias_enable = VK_TRUE;
     this->depth_bias_constant_factor = depth_bias_constant_factor;
     this->depth_bias_slope_factor = depth_bias_slope_factor;
 }
 
 void PipelineState::disable_depth_bias() {
+    is_dirty = true;
     depth_bias_enable = VK_FALSE;
     depth_bias_constant_factor = 0.0f;
     depth_bias_slope_factor = 0.0f;
+}
+
+void PipelineState::enable_blending(
+    VkBlendFactor src_color_blend_factor,
+    VkBlendFactor dst_color_blend_factor,
+    VkBlendOp color_blend_op,
+    VkBlendFactor src_alpha_blend_factor,
+    VkBlendFactor dst_alpha_blend_factor,
+    VkBlendOp alpha_blend_op
+) {
+    is_dirty = true;
+    color_blend_attachment_state.blendEnable = VK_TRUE;
+    color_blend_attachment_state.srcColorBlendFactor = src_color_blend_factor;
+    color_blend_attachment_state.dstColorBlendFactor = dst_color_blend_factor;
+    color_blend_attachment_state.colorBlendOp = color_blend_op;
+    color_blend_attachment_state.srcAlphaBlendFactor = src_alpha_blend_factor;
+    color_blend_attachment_state.dstAlphaBlendFactor = dst_alpha_blend_factor;
+    color_blend_attachment_state.alphaBlendOp = alpha_blend_op;
+    color_blend_attachment_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+        | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+}
+
+void PipelineState::disable_blending() {
+    is_dirty = true;
+    color_blend_attachment_state = {};
+}
+
+VkPipelineColorBlendAttachmentState PipelineState::get_blending_state() const {
+    return color_blend_attachment_state;
 }
 
 VkBool32 PipelineState::get_depth_bias_enable() const {

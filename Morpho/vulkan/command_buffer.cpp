@@ -282,4 +282,26 @@ void CommandBuffer::disable_depth_bias() {
     pipeline_state.disable_depth_bias();
 }
 
+void CommandBuffer::enable_blending(
+    VkBlendFactor src_color_blend_factor,
+    VkBlendFactor dst_color_blend_factor,
+    VkBlendOp color_blend_op,
+    VkBlendFactor src_alpha_blend_factor,
+    VkBlendFactor dst_alpha_blend_factor,
+    VkBlendOp alpha_blend_op
+) {
+    pipeline_state.enable_blending(
+        src_color_blend_factor,
+        dst_color_blend_factor,
+        color_blend_op,
+        src_alpha_blend_factor,
+        dst_alpha_blend_factor,
+        alpha_blend_op
+    );
+}
+
+void CommandBuffer::disable_blending() {
+    pipeline_state.disable_blending();
+}
+
 }

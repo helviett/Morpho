@@ -79,6 +79,15 @@ public:
     void set_topology(VkPrimitiveTopology topology);
     void enable_depth_bias(float depth_bias_constant_factor, float depth_bias_slope_factor);
     void disable_depth_bias();
+    void enable_blending(
+        VkBlendFactor src_color_blend_factor,
+        VkBlendFactor dst_color_blend_factor,
+        VkBlendOp color_blend_op,
+        VkBlendFactor src_alpha_blend_factor,
+        VkBlendFactor dst_alpha_blend_factor,
+        VkBlendOp alpha_blend_op
+    );
+    void disable_blending();
     void reset();
 private:
     VkCommandBuffer command_buffer;

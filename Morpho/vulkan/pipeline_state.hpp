@@ -39,6 +39,16 @@ public:
     VkPrimitiveTopology get_topology() const;
     void enable_depth_bias(float depth_bias_constant_factor, float depth_bias_slope_factor);
     void disable_depth_bias();
+    void enable_blending(
+        VkBlendFactor src_color_blend_factor,
+        VkBlendFactor dst_color_blend_factor,
+        VkBlendOp color_blend_op,
+        VkBlendFactor src_alpha_blend_factor,
+        VkBlendFactor dst_alpha_blend_factor,
+        VkBlendOp alpha_blend_op
+    );
+    void disable_blending();
+    VkPipelineColorBlendAttachmentState get_blending_state() const;
     VkBool32 get_depth_bias_enable() const;
     float get_depth_bias_constant_factor() const;
     float get_depth_bias_slope_factor() const;
@@ -58,6 +68,7 @@ private:
     VkBool32 depth_bias_enable = VK_FALSE;
     float depth_bias_constant_factor = 0.0;
     float depth_bias_slope_factor = 0.0;
+    VkPipelineColorBlendAttachmentState color_blend_attachment_state{};
 };
 
 }

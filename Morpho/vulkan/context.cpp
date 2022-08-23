@@ -429,7 +429,6 @@ VkExtent2D Context::get_swapchain_extent() const {
 }
 
 Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& render_pass, uint32_t subpass) {
-
     VkPipelineShaderStageCreateInfo stages[5];
     for (uint32_t i = 0; i < pipeline_state.get_shader_count(); i++) {
         auto shader = pipeline_state.get_shader(i);
@@ -514,11 +513,7 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
 
     // VkPipelineDynamicStateCreateInfo dynamic_state{};
 
-    VkPipelineColorBlendAttachmentState color_blend_attachment_state{};
-    color_blend_attachment_state.blendEnable = VK_FALSE;
-    color_blend_attachment_state.colorWriteMask =
-        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
-        | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendAttachmentState color_blend_attachment_state = pipeline_state.get_blending_state();
 
     VkPipelineColorBlendStateCreateInfo color_blend_state{};
     color_blend_state.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
