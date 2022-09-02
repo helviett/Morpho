@@ -14,7 +14,7 @@ CommandBuffer::CommandBuffer(VkCommandBuffer command_buffer, Context* context) {
 
 void CommandBuffer::end_render_pass() {
     vkCmdEndRenderPass(command_buffer);
-    current_render_pass = RenderPass(VK_NULL_HANDLE);
+    current_render_pass = RenderPass();
 }
 
 void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) {

@@ -1,6 +1,7 @@
 #include "context.hpp"
 #include <cassert>
 #include <optional>
+#include "../common/hash_utils.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -429,6 +430,12 @@ VkExtent2D Context::get_swapchain_extent() const {
 }
 
 Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& render_pass, uint32_t subpass) {
+    std:size_t hash = 0;
+    hash_combine(hash, pipeline_state, render_pass.get_render_pass_layout().get_vulkan_handle(), subpass);
+    VkPipeline pipeline;
+    if (pipeline_cache.try_get(hash, pipeline)) {
+        return Pipeline(pipeline);
+    }
     VkPipelineShaderStageCreateInfo stages[5];
     for (uint32_t i = 0; i < pipeline_state.get_shader_count(); i++) {
         auto shader = pipeline_state.get_shader(i);
@@ -542,18 +549,13 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
     pipeline_info.pColorBlendState = &color_blend_state;
     pipeline_info.pDynamicState = nullptr;
     pipeline_info.layout = pipeline_state.get_pipeline_layout().get_pipeline_layout();
-    pipeline_info.renderPass = render_pass.get_vulkan_handle();
+    pipeline_info.renderPass = render_pass.get_render_pass_layout().get_vulkan_handle();
     pipeline_info.subpass = 0;
     pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     pipeline_info.basePipelineIndex = 0;
 
-    VkPipeline pipeline;
     vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline);
-
-    auto& current_frame_context = get_current_frame_context();
-    current_frame_context.destructors.push_back([=] {
-        vkDestroyPipeline(device, pipeline, nullptr);
-    });
+    pipeline_cache.add(hash, pipeline);
 
     return Pipeline(pipeline);
 }
@@ -692,7 +694,7 @@ PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DES
     pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     pipeline_layout_info.setLayoutCount = Limits::MAX_DESCRIPTOR_SET_COUNT;
     pipeline_layout_info.pSetLayouts = descriptor_set_layout_handles;
-
+    size_t pipeline_layout_hash = 0;
     for (int i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
         auto& set = sets[i];
         VkDescriptorSetLayoutCreateInfo layout_info{};
@@ -701,6 +703,7 @@ PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DES
         layout_info.pBindings = bindings;
         layout_info.flags = 0;
         uint32_t current_binding = 0;
+        size_t hash = 0;
         for (uint32_t j = 0; j < Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT; j++) {
             auto binding = set.get_binding(j);
             switch (binding.get_resource_type())
@@ -722,23 +725,25 @@ PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DES
             default:
                 break;
             }
+            hash_combine(hash, j, binding.get_resource_type());
             bindings[current_binding].binding = j;
             bindings[current_binding].pImmutableSamplers = nullptr;
             current_binding++;
         }
         layout_info.bindingCount = current_binding;
         VkDescriptorSetLayout descriptor_set_layout;
-        vkCreateDescriptorSetLayout(device, &layout_info, nullptr, &descriptor_set_layout);
-        get_current_frame_context().destructors.push_back([=] {
-            vkDestroyDescriptorSetLayout(device, descriptor_set_layout, nullptr);
-        });
+        if (!descriptor_set_layout_cache.try_get(hash, descriptor_set_layout)) {
+            vkCreateDescriptorSetLayout(device, &layout_info, nullptr, &descriptor_set_layout);
+            descriptor_set_layout_cache.add(hash, descriptor_set_layout);
+        }
+        hash_combine(pipeline_layout_hash, i, descriptor_set_layout);
         descriptor_set_layout_handles[i] = descriptor_set_layout;
         descriptor_set_layouts[i] = DescriptorSetLayout(descriptor_set_layout);
     }
-    vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &pipeline_layout);
-    get_current_frame_context().destructors.push_back([=] {
-        vkDestroyPipelineLayout(device, pipeline_layout, nullptr);
-    });
+    if (!pipeline_layout_cache.try_get(pipeline_layout_hash, pipeline_layout)) {
+        vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &pipeline_layout);
+        pipeline_layout_cache.add(pipeline_layout_hash, pipeline_layout);
+    }
     return PipelineLayout(pipeline_layout, descriptor_set_layouts);
 }
 
@@ -955,19 +960,22 @@ RenderPassLayout Context::acquire_render_pass_layout(const RenderPassLayoutInfo&
         attachment.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     }
     render_pass_info.layout = RenderPassLayout(info);
-    auto render_pass = create_render_pass(render_pass_info);
-    get_current_frame_context().destructors.push_back([=] {
-        vkDestroyRenderPass(device, render_pass, nullptr);
-    });
+    size_t hash = 0;
+    VkRenderPass render_pass;
+    hash_combine(hash, info);
+    if (!render_pass_cache.try_get(hash, render_pass)) {
+        render_pass = create_render_pass(render_pass_info);
+    }
     return RenderPassLayout(info, render_pass);
 }
 
 RenderPass Context::acquire_render_pass(const RenderPassInfo& info) {
-    auto render_pass = create_render_pass(info);
-    get_current_frame_context().destructors.push_back([=] {
-        vkDestroyRenderPass(device, render_pass, nullptr);
-    });
-    return RenderPass(render_pass);
+    size_t hash = 0;
+    VkRenderPass render_pass;
+    if (!render_pass_cache.try_get(hash, render_pass)) {
+        render_pass = create_render_pass(info);
+    }
+    return RenderPass(render_pass, info.layout);
 }
 
 }

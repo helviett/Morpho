@@ -5,6 +5,8 @@ namespace Morpho::Vulkan {
 PipelineState::PipelineState() {
     depth_stencil_state = {};
     depth_stencil_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+    color_blend_attachment_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+        | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 }
 
 void PipelineState::add_shader(const Shader shader) {
@@ -164,6 +166,8 @@ void PipelineState::enable_blending(
 void PipelineState::disable_blending() {
     is_dirty = true;
     color_blend_attachment_state = {};
+    color_blend_attachment_state.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT
+        | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
 }
 
 VkPipelineColorBlendAttachmentState PipelineState::get_blending_state() const {

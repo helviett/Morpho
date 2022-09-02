@@ -3,12 +3,18 @@
 
 namespace Morpho::Vulkan {
 
-RenderPass::RenderPass(VkRenderPass render_pass) {
-    this->render_pass = render_pass;
+RenderPass::RenderPass() : render_pass(VK_NULL_HANDLE), layout{} {
+
 }
+
+RenderPass::RenderPass(VkRenderPass render_pass, RenderPassLayout layout) : render_pass(render_pass), layout(layout) { }
 
 VkRenderPass RenderPass::get_vulkan_handle() const {
     return render_pass;
+}
+
+RenderPassLayout RenderPass::get_render_pass_layout() const {
+    return layout;
 }
 
 RenderPassInfoBuilder& RenderPassInfoBuilder::layout(const RenderPassLayout& layout) {

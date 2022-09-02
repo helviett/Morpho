@@ -5,6 +5,7 @@
 #include "buffer.hpp"
 #include "pipeline_layout.hpp"
 #include "limits.hpp"
+#include "../common/hash_utils.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -72,3 +73,54 @@ private:
 };
 
 }
+
+template<>
+struct std::hash<Morpho::Vulkan::PipelineState> {
+    std::size_t operator()(Morpho::Vulkan::PipelineState const& state) const noexcept {
+        std::size_t h = 0;
+        Morpho::hash_combine(h, state.get_shader_count());
+        for (uint32_t i = 0; i < state.get_shader_count(); i++) {
+            auto shader = state.get_shader(i);
+            Morpho::hash_combine(h, shader.get_stage(), shader.get_shader_module(), shader.get_entry_point());
+        }
+        Morpho::hash_combine(h, state.get_attribute_description_count());
+        for (uint32_t i = 0; i < state.get_attribute_description_count(); i++) {
+            auto desc = state.get_vertex_attribute_description(i);
+            Morpho::hash_combine(h, desc.location, desc.binding, desc.format, desc.offset);
+        }
+        Morpho::hash_combine(h, state.get_vertex_binding_description_count());
+        for (uint32_t i = 0; i < state.get_vertex_binding_description_count(); i++) {
+            auto desc = state.get_vertex_binding_description(i);
+            Morpho::hash_combine(h, desc.binding, desc.inputRate, desc.stride);
+        }
+        Morpho::hash_combine(h, state.get_pipeline_layout().get_pipeline_layout());
+        auto depth_stencil = state.get_depth_stencil_state();
+        Morpho::hash_combine(
+            h,
+            depth_stencil.depthTestEnable,
+            depth_stencil.depthWriteEnable,
+            depth_stencil.depthCompareOp
+        );
+        Morpho::hash_combine(h, state.get_front_face(), state.get_cull_mode(), state.get_topology());
+        auto blending = state.get_blending_state();
+        if (blending.blendEnable) {
+            Morpho::hash_combine(
+                h,
+                blending.alphaBlendOp,
+                blending.colorBlendOp,
+                blending.colorWriteMask,
+                blending.dstAlphaBlendFactor,
+                blending.dstColorBlendFactor,
+                blending.srcAlphaBlendFactor,
+                blending.srcColorBlendFactor
+            );
+        }
+        Morpho::hash_combine(
+            h,
+            state.get_depth_bias_enable(),
+            state.get_depth_bias_constant_factor(),
+            state.get_depth_bias_slope_factor()
+        );
+        return h;
+    }
+};

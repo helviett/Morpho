@@ -1,6 +1,7 @@
 #pragma once
 #include <vulkan/vulkan.h>
 #include <optional>
+#include "../common/hash_utils.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -49,6 +50,25 @@ private:
     VkRenderPass render_pass;
     RenderPassLayoutInfo info;
 };
-
-
 }
+
+template<>
+struct std::hash<Morpho::Vulkan::RenderPassLayoutAttachmentInfo> {
+    std::size_t operator()(Morpho::Vulkan::RenderPassLayoutAttachmentInfo const& info) const noexcept {
+        std::size_t h = 0;
+        Morpho::hash_combine(h, info.format);
+        return h;
+    }
+};
+
+template<>
+struct std::hash<Morpho::Vulkan::RenderPassLayoutInfo> {
+    std::size_t operator()(Morpho::Vulkan::RenderPassLayoutInfo const& info) const noexcept {
+        std::size_t h = 0;
+        Morpho::hash_combine(h, info.max_attachment_count);
+        for (std::size_t i = 0; i < info.attachent_count; i++) {
+            Morpho::hash_combine(h, info.attachments[i]);
+        }
+        return h;
+    }
+};

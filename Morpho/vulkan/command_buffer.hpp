@@ -91,7 +91,7 @@ public:
     void reset();
 private:
     VkCommandBuffer command_buffer;
-    RenderPass current_render_pass = RenderPass(VK_NULL_HANDLE);
+    RenderPass current_render_pass = RenderPass();
     PipelineState pipeline_state;
     Pipeline pipeline;
     Context* context;

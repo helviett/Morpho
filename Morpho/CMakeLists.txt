@@ -34,6 +34,8 @@ set(SOURCE_FILES
     vulkan/image.hpp vulkan/image.cpp
     vulkan/image_view.hpp vulkan/image_view.cpp
     vulkan/sampler.hpp vulkan/sampler.cpp
+    common/resource_cache.hpp
+    common/hash_utils.hpp
 )
 
 # Add source to this project's executable.

@@ -22,6 +22,7 @@
 #include "image_view.hpp"
 #include "sampler.hpp"
 #include "render_pass_layout.hpp"
+#include "../common/resource_cache.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -119,6 +120,10 @@ private:
     VkQueue graphics_queue;
     uint32_t graphics_queue_family_index;
     VmaAllocator allocator;
+    ResourceCache<VkPipelineLayout> pipeline_layout_cache;
+    ResourceCache<VkDescriptorSetLayout> descriptor_set_layout_cache;
+    ResourceCache<VkRenderPass> render_pass_cache;
+    ResourceCache<VkPipeline> pipeline_cache;
 
     struct FrameContext {
         // Stays here for a while for simplicity
