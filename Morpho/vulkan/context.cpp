@@ -363,6 +363,17 @@ Context::FrameContext& Context::get_current_frame_context() {
     return frame_contexts[frame_context_index];
 }
 
+void Context::release_buffer_on_frame_begin(Buffer buffer) {
+    get_current_frame_context().destructors.push_back([=] {
+        vmaDestroyBuffer(allocator, buffer.get_buffer(), buffer.get_allocation());
+    });
+}
+
+void Context::release_image_on_frame_begin(Image image) {
+    get_current_frame_context().destructors.push_back([=] {
+        vmaDestroyImage(allocator, image.get_image(), image.get_allocation());
+    });
+}
 
 void Context::submit(CommandBuffer command_buffer) {
     auto handle = command_buffer.get_vulkan_handle();
@@ -589,16 +600,13 @@ void Context::unmap_memory(VmaAllocation allocation) {
 Buffer Context::acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) {
     auto& frame_context = get_current_frame_context();
     auto buffer = acquire_buffer(size, buffer_usage, memory_usage);
-    frame_context.destructors.push_back([=] {
-        release_buffer(buffer);
-    });
+    release_buffer_on_frame_begin(buffer);
     return buffer;
 }
 
 void Context::release_buffer(Buffer buffer) {
-    vmaDestroyBuffer(allocator, buffer.get_buffer(), buffer.get_allocation());
+    release_buffer_on_frame_begin(buffer);
 }
-
 
 void Context::flush(CommandBuffer command_buffer) {
     auto handle = command_buffer.get_vulkan_handle();
@@ -775,9 +783,7 @@ Image Context::acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFla
 
 Image Context::acquire_temporary_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage) {
     auto image = acquire_image(extent, format, image_usage, memory_usage);
-    get_current_frame_context().destructors.push_back([=] {
-        release_image(image);
-    });
+    release_image_on_frame_begin(image);
     return image;
 }
 
@@ -809,7 +815,7 @@ ImageView Context::create_temporary_image_view(VkFormat format, Image& image, Vk
 }
 
 void Context::release_image(Image image) {
-    vmaDestroyImage(allocator, image.get_image(), image.get_allocation());
+    release_image_on_frame_begin(image);
 }
 
 void Context::destroy_image_view(ImageView image_view) {

@@ -49,9 +49,11 @@ void DestroyDebugUtilsMessengerEXT(
 class Context {
 public:
     Context() = default;
-    Context(const Context &) = delete;
     ~Context();
-	void operator=(const Context &) = delete;
+    Context(const Context &) = delete;
+    Context &operator=(const Context &) = delete;
+    Context(Context &&) = delete;
+    Context &operator=(Context &&) = delete;
 
     void init(GLFWwindow *window);
     void set_frame_context_count(uint32_t count);
@@ -131,6 +133,12 @@ private:
         VkCommandPool command_pool;
         VkFence render_fence;
         VkSemaphore render_semaphore, present_semaphore;
+
+        FrameContext() = default;
+        FrameContext(const FrameContext &) = delete;
+        FrameContext &operator=(const FrameContext &) = delete;
+        FrameContext(FrameContext &&) = delete;
+        FrameContext &operator=(FrameContext &&) = delete;
     } frame_contexts[MAX_FRAME_CONTEXTS];
 
 
@@ -148,6 +156,10 @@ private:
     VkResult try_create_device();
     void retrieve_queues();
     FrameContext& get_current_frame_context();
+    // The safest way to release resources is on the start of
+    // the frame context they were last used in.
+    void release_buffer_on_frame_begin(Buffer buffer);
+    void release_image_on_frame_begin(Image image);
 
     // WSI stuff that will soon migrate somewhere
     GLFWwindow* window;
