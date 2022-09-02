@@ -23,6 +23,7 @@
 #include "sampler.hpp"
 #include "render_pass_layout.hpp"
 #include "../common/resource_cache.hpp"
+#include "descriptor_pool.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -130,6 +131,8 @@ private:
     struct FrameContext {
         // Stays here for a while for simplicity
         std::vector<std::function<void(void)>> destructors;
+        std::vector<DescriptorPool> descriptor_pools;
+        uint32_t current_descriptor_pool_index = 0;
         VkCommandPool command_pool;
         VkFence render_fence;
         VkSemaphore render_semaphore, present_semaphore;

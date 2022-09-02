@@ -36,6 +36,7 @@ set(SOURCE_FILES
     vulkan/sampler.hpp vulkan/sampler.cpp
     common/resource_cache.hpp
     common/hash_utils.hpp
+    vulkan/descriptor_pool.hpp vulkan/descriptor_pool.cpp
 )
 
 # Add source to this project's executable.

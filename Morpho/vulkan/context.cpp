@@ -302,12 +302,26 @@ void Context::set_frame_context_count(uint32_t count) {
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
+    VkDescriptorPoolSize pool_sizes[2];
+    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    pool_sizes[0].descriptorCount = 128;
+    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    pool_sizes[1].descriptorCount = 128;
+    VkDescriptorPoolCreateInfo pool_info{};
+    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = pool_sizes;
+    pool_info.maxSets = 16;
+
     for (size_t i = 0; i < count; i++) {
         auto& frame_context = frame_contexts[i];
         vkCreateCommandPool(device, &command_pool_info, nullptr, &frame_context.command_pool);
         vkCreateFence(device, &fence_info, nullptr, &frame_context.render_fence);
         vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_context.present_semaphore);
         vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_context.render_semaphore);
+        VkDescriptorPool pool;
+        vkCreateDescriptorPool(device, &pool_info, nullptr, &pool);
+        frame_context.descriptor_pools.push_back(DescriptorPool(device, pool, 16));
     }
 }
 
@@ -317,6 +331,10 @@ void Context::begin_frame() {
     vkWaitForFences(device, 1, &frame_context.render_fence, true, 1000000000);
     vkResetFences(device, 1, &frame_context.render_fence);
     vkResetCommandPool(device, frame_context.command_pool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
+    for (auto& descriptor_pool : frame_context.descriptor_pools) {
+        descriptor_pool.reset();
+    }
+    frame_context.current_descriptor_pool_index = 0;
     for (auto it = frame_context.destructors.rbegin(); it != frame_context.destructors.rend(); it++) {
         (*it)();
     }
@@ -628,34 +646,27 @@ void Context::flush(CommandBuffer command_buffer) {
 }
 
 DescriptorSet Context::acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout) {
-    // TODO store info about required descriptor types in DescriptorSetLayout.
-    // For now just add all possible types.
+    DescriptorSet set;
+    auto& frame_context = get_current_frame_context();
+    auto& descriptor_pool = frame_context.descriptor_pools[frame_context.current_descriptor_pool_index];
+    if (descriptor_pool.try_allocate_set(descriptor_set_layout, set)) {
+        return set;
+    }
     VkDescriptorPoolSize pool_sizes[2];
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_sizes[0].descriptorCount = 100;
+    pool_sizes[0].descriptorCount = 128;
     pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = 100;
+    pool_sizes[1].descriptorCount = 128;
     VkDescriptorPoolCreateInfo pool_info{};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     pool_info.poolSizeCount = 1;
     pool_info.pPoolSizes = pool_sizes;
-    pool_info.maxSets = 100;
-    VkDescriptorPool descriptor_pool;
-    vkCreateDescriptorPool(device, &pool_info, nullptr, &descriptor_pool);
-    get_current_frame_context().destructors.push_back([=] {
-        vkDestroyDescriptorPool(device, descriptor_pool, nullptr);
-    });
-    VkDescriptorSetAllocateInfo allocate_info{};
-    allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-    allocate_info.descriptorPool = descriptor_pool;
-    auto set_layout = descriptor_set_layout.get_descriptor_set_layout();
-    allocate_info.pSetLayouts = &set_layout;
-    allocate_info.descriptorSetCount = 1;
-
-    VkDescriptorSet descriptor_set;
-    vkAllocateDescriptorSets(device, &allocate_info, &descriptor_set);
-
-    return DescriptorSet(descriptor_set);
+    pool_info.maxSets = 16;
+    VkDescriptorPool vulkan_descriptor_pool;
+    vkCreateDescriptorPool(device, &pool_info, nullptr, &vulkan_descriptor_pool);
+    frame_context.descriptor_pools.push_back(DescriptorPool(device, vulkan_descriptor_pool, 16));
+    frame_context.current_descriptor_pool_index++;
+    return acquire_descriptor_set(descriptor_set_layout);
 }
 
 void Context::update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set) {
