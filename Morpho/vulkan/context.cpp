@@ -502,27 +502,25 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
     input_assembly_state.topology = pipeline_state.get_topology();
     input_assembly_state.primitiveRestartEnable = VK_FALSE;
 
-    // VkPipelineTessellationStateCreateInfo tesselation_state{};
-    VkViewport viewport{};
-    viewport.x = 0;
-    viewport.y = 0;
-    viewport.width = (float)swapchain_extent.width;
-    viewport.height = (float)swapchain_extent.height;
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
+    VkDynamicState dynamic_states[] = {
+        VK_DYNAMIC_STATE_VIEWPORT,
+        VK_DYNAMIC_STATE_SCISSOR,
+    };
 
-    VkRect2D scissor{};
-    scissor.offset = {0, 0};
-    scissor.extent = swapchain_extent;
+    VkPipelineDynamicStateCreateInfo dynamic_state{};
+    dynamic_state.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO;
+    dynamic_state.dynamicStateCount = 2;
+    dynamic_state.flags = 0;
+    dynamic_state.pNext = nullptr;
+    dynamic_state.pDynamicStates = dynamic_states;
 
     VkPipelineViewportStateCreateInfo viewport_state{};
     viewport_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
     viewport_state.pNext = nullptr;
-    viewport_state.flags = 0;
-    viewport_state.viewportCount = 1;
-    viewport_state.pViewports = &viewport;
     viewport_state.scissorCount = 1;
-    viewport_state.pScissors = &scissor;
+    viewport_state.pScissors = nullptr;
+    viewport_state.viewportCount = 1;
+    viewport_state.pViewports = nullptr;
 
     VkPipelineRasterizationStateCreateInfo rasterization_state{};
     rasterization_state.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
@@ -546,8 +544,6 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
     multisample_state.sampleShadingEnable = VK_FALSE;
 
      VkPipelineDepthStencilStateCreateInfo depth_stencil_state = pipeline_state.get_depth_stencil_state();
-
-    // VkPipelineDynamicStateCreateInfo dynamic_state{};
 
     VkPipelineColorBlendAttachmentState color_blend_attachment_state = pipeline_state.get_blending_state();
 
@@ -576,7 +572,7 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
     pipeline_info.pMultisampleState = &multisample_state;
     pipeline_info.pDepthStencilState = &depth_stencil_state;
     pipeline_info.pColorBlendState = &color_blend_state;
-    pipeline_info.pDynamicState = nullptr;
+    pipeline_info.pDynamicState = &dynamic_state;
     pipeline_info.layout = pipeline_state.get_pipeline_layout().get_pipeline_layout();
     pipeline_info.renderPass = render_pass.get_render_pass_layout().get_vulkan_handle();
     pipeline_info.subpass = 0;

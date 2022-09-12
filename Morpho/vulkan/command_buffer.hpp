@@ -89,6 +89,8 @@ public:
     );
     void disable_blending();
     void reset();
+    void set_viewport(VkViewport viewport);
+    void set_scissor(VkRect2D scissor);
 private:
     VkCommandBuffer command_buffer;
     RenderPass current_render_pass = RenderPass();

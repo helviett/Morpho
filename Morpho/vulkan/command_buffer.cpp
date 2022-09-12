@@ -259,6 +259,14 @@ void CommandBuffer::reset() {
     pipeline_state = PipelineState();
 }
 
+void CommandBuffer::set_viewport(VkViewport viewport) {
+    vkCmdSetViewport(command_buffer, 0, 1, &viewport);
+}
+
+void CommandBuffer::set_scissor(VkRect2D scissor) {
+    vkCmdSetScissor(command_buffer, 0, 1, &scissor);
+}
+
 void CommandBuffer::begin_render_pass(
     RenderPass render_pass,
     Framebuffer framebuffer,
