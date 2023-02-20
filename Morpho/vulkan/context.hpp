@@ -77,11 +77,39 @@ public:
     PipelineLayout acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT]);
     DescriptorSet acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout);
     void update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set);
-    Image acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage);
-    Image acquire_temporary_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage);
+    Image acquire_image(
+        VkExtent3D extent,
+        VkFormat format,
+        VkImageUsageFlags image_usage,
+        VmaMemoryUsage memory_usage,
+        uint32_t array_layers = 1,
+        VkImageCreateFlags flags = 0
+    );
+    Image acquire_temporary_image(
+        VkExtent3D extent,
+        VkFormat format,
+        VkImageUsageFlags image_usage,
+        VmaMemoryUsage memory_usage,
+        uint32_t array_layers = 1,
+        VkImageCreateFlags flags = 0
+    );
     void release_image(Image image);
-    ImageView create_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect);
-    ImageView create_temporary_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect);
+    ImageView create_image_view(
+        VkFormat format,
+        Image& image,
+        VkImageAspectFlags aspect,
+        VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D,
+        uint32_t base_array_layer = 0,
+        uint32_t layer_count = 1
+    );
+    ImageView create_temporary_image_view(
+        VkFormat format,
+        Image& image,
+        VkImageAspectFlags aspect,
+        VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D,
+        uint32_t base_array_layer = 0,
+        uint32_t layer_count = 1
+    );
     void destroy_image_view(ImageView image_view);
     Sampler acquire_sampler(
         VkSamplerAddressMode address_mode,

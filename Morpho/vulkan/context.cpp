@@ -765,15 +765,22 @@ PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DES
     return PipelineLayout(pipeline_layout, descriptor_set_layouts);
 }
 
-Image Context::acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage) {
+Image Context::acquire_image(
+    VkExtent3D extent,
+    VkFormat format,
+    VkImageUsageFlags image_usage,
+    VmaMemoryUsage memory_usage,
+    uint32_t array_layers,
+    VkImageCreateFlags flags
+) {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.flags = 0;
+    image_info.flags = flags;
     image_info.extent = extent;
     image_info.imageType = VK_IMAGE_TYPE_2D;
     image_info.format = format;
     image_info.mipLevels = 1;
-    image_info.arrayLayers = 1;
+    image_info.arrayLayers = array_layers;
     image_info.usage = image_usage;
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
@@ -791,20 +798,34 @@ Image Context::acquire_image(VkExtent3D extent, VkFormat format, VkImageUsageFla
     return Image(image, allocation, allocation_info);
 }
 
-Image Context::acquire_temporary_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags image_usage, VmaMemoryUsage memory_usage) {
-    auto image = acquire_image(extent, format, image_usage, memory_usage);
+Image Context::acquire_temporary_image(
+    VkExtent3D extent,
+    VkFormat format,
+    VkImageUsageFlags image_usage,
+    VmaMemoryUsage memory_usage,
+    uint32_t array_layers,
+    VkImageCreateFlags flags
+) {
+    auto image = acquire_image(extent, format, image_usage, memory_usage, array_layers, flags);
     release_image_on_frame_begin(image);
     return image;
 }
 
-ImageView Context::create_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect) {
+ImageView Context::create_image_view(
+    VkFormat format,
+    Image& image,
+    VkImageAspectFlags aspect,
+    VkImageViewType view_type,
+    uint32_t base_array_layer,
+    uint32_t layer_count
+) {
     VkImageViewCreateInfo image_view_info{};
     image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
     image_view_info.format = format;
-    image_view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+    image_view_info.viewType = view_type;
     image_view_info.subresourceRange.aspectMask = aspect;
-    image_view_info.subresourceRange.baseArrayLayer = 0;
-    image_view_info.subresourceRange.layerCount = 1;
+    image_view_info.subresourceRange.baseArrayLayer = base_array_layer;
+    image_view_info.subresourceRange.layerCount = layer_count;
     image_view_info.subresourceRange.baseMipLevel = 0;
     image_view_info.subresourceRange.levelCount = 1;
     image_view_info.image = image.get_image();
@@ -812,12 +833,19 @@ ImageView Context::create_image_view(VkFormat format, Image& image, VkImageAspec
     VkImageView image_view;
     vkCreateImageView(device, &image_view_info, nullptr, &image_view);
 
-    return ImageView(image_view);
+    return ImageView(image_view, image);
 }
 
 
-ImageView Context::create_temporary_image_view(VkFormat format, Image& image, VkImageAspectFlags aspect) {
-    auto image_view = create_image_view(format, image, aspect);
+ImageView Context::create_temporary_image_view(
+    VkFormat format,
+    Image& image,
+    VkImageAspectFlags aspect,
+    VkImageViewType view_type,
+    uint32_t base_array_layer,
+    uint32_t layer_count
+) {
+    auto image_view = create_image_view(format, image, aspect, view_type, base_array_layer, layer_count);
     get_current_frame_context().destructors.push_back([=]{
         destroy_image_view(image_view);
     });
@@ -862,7 +890,7 @@ Sampler Context::acquire_sampler(
     sampler_info.compareEnable = compare_enable;
     sampler_info.compareOp = compare_op;
     sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sampler_info.maxLod = 0.0f;
+    sampler_info.maxLod = 1.0f;
     sampler_info.minLod = 0.0f;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
 
