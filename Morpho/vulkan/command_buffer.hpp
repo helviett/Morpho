@@ -40,7 +40,8 @@ public:
         VkPipelineStageFlags src_stages,
         VkAccessFlags src_access,
         VkPipelineStageFlags dst_stages,
-        VkAccessFlags dst_access
+        VkAccessFlags dst_access,
+        uint32_t layer_count = 1
     );
     void buffer_barrier(
         const Buffer& buffer,

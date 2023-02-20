@@ -167,7 +167,8 @@ void CommandBuffer::image_barrier(
     VkPipelineStageFlags src_stages,
     VkAccessFlags src_access,
     VkPipelineStageFlags dst_stages,
-    VkAccessFlags dst_access
+    VkAccessFlags dst_access,
+    uint32_t layer_count
 ) {
     VkImageMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
@@ -180,7 +181,7 @@ void CommandBuffer::image_barrier(
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.subresourceRange.aspectMask = aspect;
     barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.layerCount = 1;
+    barrier.subresourceRange.layerCount = layer_count;
     vkCmdPipelineBarrier(
         command_buffer,
         src_stages,
