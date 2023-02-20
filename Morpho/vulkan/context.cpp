@@ -132,10 +132,10 @@ VkDebugUtilsMessengerCreateInfoEXT Context::get_default_messenger_create_info() 
     VkDebugUtilsMessengerCreateInfoEXT info{};
     info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
     info.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT
+        | VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT
         | VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT
         | VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
-    info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT
-        | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
+    info.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT
         | VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT;
     info.pfnUserCallback = debug_callback;
 
@@ -181,9 +181,12 @@ VkResult Context::try_create_device() {
         }
     }
 
+    float priority = 1.0f;
     VkDeviceQueueCreateInfo queue_info{};
+    queue_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
     queue_info.queueCount = 1;
     queue_info.queueFamilyIndex = graphics_queue_family_index;
+    queue_info.pQueuePriorities = &priority;
 
     std::array<const char *, 1> extensions = { "VK_KHR_swapchain", };
 
