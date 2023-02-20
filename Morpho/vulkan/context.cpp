@@ -647,9 +647,12 @@ void Context::flush(CommandBuffer command_buffer) {
 DescriptorSet Context::acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout) {
     DescriptorSet set;
     auto& frame_context = get_current_frame_context();
-    auto& descriptor_pool = frame_context.descriptor_pools[frame_context.current_descriptor_pool_index];
-    if (descriptor_pool.try_allocate_set(descriptor_set_layout, set)) {
-        return set;
+    while (frame_context.current_descriptor_pool_index < frame_context.descriptor_pools.size()) {
+        auto& descriptor_pool = frame_context.descriptor_pools[frame_context.current_descriptor_pool_index];
+        if (descriptor_pool.try_allocate_set(descriptor_set_layout, set)) {
+            return set;
+        }
+        frame_context.current_descriptor_pool_index++;
     }
     VkDescriptorPoolSize pool_sizes[2];
     pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
@@ -664,7 +667,6 @@ DescriptorSet Context::acquire_descriptor_set(DescriptorSetLayout descriptor_set
     VkDescriptorPool vulkan_descriptor_pool;
     vkCreateDescriptorPool(device, &pool_info, nullptr, &vulkan_descriptor_pool);
     frame_context.descriptor_pools.push_back(DescriptorPool(device, vulkan_descriptor_pool, 16));
-    frame_context.current_descriptor_pool_index++;
     return acquire_descriptor_set(descriptor_set_layout);
 }
 
