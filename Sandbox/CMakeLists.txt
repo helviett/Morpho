@@ -1,13 +1,13 @@
 # CMakeList.txt : CMake project for Morpho, include source and define
 # project specific logic here.
 #
-cmake_minimum_required (VERSION 3.8)
+cmake_minimum_required (VERSION 3.12)
 
 
 set (CMAKE_CXX_STANDARD 17)
+add_compile_definitions(GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_XYZW_ONLY)
 include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
 conan_basic_setup()
-
 set(SOURCE_FILES
     src/application.cpp src/application.hpp
     src/input/input.cpp src/input/input.hpp
@@ -15,6 +15,7 @@ set(SOURCE_FILES
     src/camera.cpp src/camera.hpp
     src/main.cpp src/stb_image_impl.cpp
     src/tinygltf_impl.cpp src/stb_image_write_impl.cpp
+    src/math.hpp src/math.cpp
 )
 
 # Add source to this project's executable.

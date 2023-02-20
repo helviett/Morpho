@@ -4,6 +4,10 @@
 #include <glm/gtc/matrix_inverse.hpp>
 
 // Free fly camera.
+// View righ-handed space:
+// X -- right
+// Y -- down
+// Z -- into the screen
 class Camera {
 public:
     Camera();
