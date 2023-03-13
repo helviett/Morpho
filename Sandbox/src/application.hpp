@@ -14,6 +14,7 @@
 #include "camera.hpp"
 #include <tiny_gltf.h>
 #include <filesystem>
+#include <unordered_set>
 
 struct Vertex {
     glm::vec3 position;

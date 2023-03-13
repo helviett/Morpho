@@ -27,31 +27,15 @@ void PipelineState::clear_shaders() {
     is_dirty = true;
 }
 
-void PipelineState::add_vertex_attribute_description(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset) {
-    is_dirty = true;
-    VkVertexInputAttributeDescription desc;
-    desc.binding = binding;
-    desc.location = location;
-    desc.format = format;
-    desc.offset = offset;
-    attribute_descriptions[attribute_description_count++] = desc;
+void PipelineState::set_vertex_format(VertexFormat vertex_format) {
+    if (this->vertex_format.get_hash() != vertex_format.get_hash()) {
+        is_dirty = true;
+        this->vertex_format = vertex_format;
+    }
 }
 
-void PipelineState::add_vertex_binding_description(uint32_t binding, uint32_t stride, VkVertexInputRate input_rate) {
-    is_dirty = true;
-    VkVertexInputBindingDescription desc;
-    desc.binding = binding;
-    desc.stride = stride;
-    desc.inputRate = input_rate;
-    binding_descriptions[binding_description_count++] = desc;
-}
-
-VkVertexInputAttributeDescription PipelineState::get_vertex_attribute_description(uint32_t index) const {
-    return attribute_descriptions[index];
-}
-
-VkVertexInputBindingDescription PipelineState::get_vertex_binding_description(uint32_t index) const {
-    return binding_descriptions[index];
+VertexFormat PipelineState::get_vertex_format() const {
+    return vertex_format;
 }
 
 void PipelineState::set_pipeline_layout(PipelineLayout pipeline_layout) {
@@ -73,10 +57,6 @@ bool PipelineState::get_and_clear_is_dirty() {
     return old_is_dirty;
 }
 
-uint32_t PipelineState::get_attribute_description_count() const {
-    return attribute_description_count;
-}
-
 void PipelineState::set_depth_state(VkBool32 test_enable, VkBool32 write_enable, VkCompareOp compare_op) {
     is_dirty = true;
     depth_stencil_state.depthTestEnable = test_enable;
@@ -88,19 +68,6 @@ VkPipelineDepthStencilStateCreateInfo PipelineState::get_depth_stencil_state() c
     return depth_stencil_state;
 }
 
-uint32_t PipelineState::get_vertex_binding_description_count() const {
-    return binding_description_count;
-}
-
-void PipelineState::clear_vertex_attribute_descriptions() {
-    is_dirty = true;
-    attribute_description_count = 0;
-}
-
-void PipelineState::clear_vertex_binding_descriptions() {
-    is_dirty = true;
-    binding_description_count = 0;
-}
 
 void PipelineState::set_front_face(VkFrontFace front_face) {
     is_dirty = true;
@@ -112,6 +79,9 @@ VkFrontFace PipelineState::get_front_face() const {
 }
 
 void PipelineState::set_cull_mode(VkCullModeFlags cull_mode) {
+    if (this->cull_mode == cull_mode) {
+        return;
+    }
     is_dirty = true;
     this->cull_mode = cull_mode;
 }

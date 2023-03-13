@@ -21,7 +21,7 @@ void ResourceSet::set_combined_image_sampler(
     Sampler sampler,
     VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
 ) {
-    bool is_resource_type_differ = bindings[binding].get_resource_type() != ResourceType::UniformBuffer;
+    bool is_resource_type_differ = bindings[binding].get_resource_type() != ResourceType::CombinedImageSampler;
     is_layout_dirty |= is_resource_type_differ;
     auto binding_dirty = is_resource_type_differ
         || image_view.get_image_view() != bindings[binding].get_image_info()->imageView

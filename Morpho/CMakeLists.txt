@@ -37,6 +37,7 @@ set(SOURCE_FILES
     common/resource_cache.hpp
     common/hash_utils.hpp
     vulkan/descriptor_pool.hpp vulkan/descriptor_pool.cpp
+    vulkan/vertex_format.hpp vulkan/vertex_format.cpp
 )
 
 # Add source to this project's executable.

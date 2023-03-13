@@ -445,8 +445,9 @@ void Application::draw_depth_image(Morpho::Vulkan::CommandBuffer &cmd, Morpho::V
     cmd.reset();
     cmd.add_shader(depth_vertex_shader);
     cmd.add_shader(shadow_map_spot_light_fragment_shader);
-    cmd.add_vertex_attribute_description(0, 0, VK_FORMAT_R32G32_SFLOAT, 0);
-    cmd.add_vertex_binding_description(0, sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_VERTEX);
+    VkVertexInputAttributeDescription attribute = { 0, 0, VK_FORMAT_R32G32_SFLOAT, 0 };
+    VkVertexInputBindingDescription binding = { 0, sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_VERTEX };
+    cmd.set_vertex_format(context->acquire_vertex_format(&attribute, 1, &binding, 1));
     cmd.set_combined_image_sampler(0, 0, depth_map, default_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     float projection_params[2] = { 0.01f, 10.0f, };
     auto projection_params_buffer = context->acquire_staging_buffer(
@@ -988,8 +989,10 @@ void Application::draw_primitive(
     uint32_t current_binding = 0;
     if (primitive.material != current_material_index) {
         auto& material = model.materials[primitive.material];
-        cmd.clear_vertex_attribute_descriptions();
-        cmd.clear_vertex_binding_descriptions();
+        VkVertexInputAttributeDescription attributes[Morpho::Vulkan::Limits::MAX_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
+        VkVertexInputBindingDescription bindings[Morpho::Vulkan::Limits::MAX_VERTEX_INPUT_BINDING_COUNT];
+        uint32_t binding_count = 0;
+        uint32_t attribute_count = 0;
         for (auto& key_value : primitive.attributes) {
             auto& attribute_name = key_value.first;
             auto accessor_index = key_value.second;
@@ -999,18 +1002,10 @@ void Application::draw_primitive(
             if (location == attribute_name_to_location.end()) {
                 continue;
             }
-            cmd.add_vertex_attribute_description(
-                current_binding,
-                (*location).second,
-                gltf_to_format(accessor.type, accessor.componentType),
-                0
-            );
-            cmd.add_vertex_binding_description(
-                current_binding++,
-                accessor.ByteStride(buffer_view),
-                VK_VERTEX_INPUT_RATE_VERTEX
-            );
+            attributes[attribute_count++] = { current_binding, location->second, gltf_to_format(accessor.type, accessor.componentType), 0 };
+            bindings[binding_count++] = { current_binding++, (uint32_t)accessor.ByteStride(buffer_view), VK_VERTEX_INPUT_RATE_VERTEX };
         }
+        cmd.set_vertex_format(context->acquire_vertex_format(attributes, attribute_count, bindings, binding_count));
         // Base color texture.
         auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
         auto base_color_image_view = base_color_texture_index < 0 ? white_image_view : texture_image_views[base_color_texture_index];

@@ -62,14 +62,6 @@ void CommandBuffer::clear_shaders() {
     pipeline_state.clear_shaders();
 }
 
-void CommandBuffer::add_vertex_attribute_description(uint32_t binding, uint32_t location, VkFormat format, uint32_t offset) {
-    pipeline_state.add_vertex_attribute_description(binding, location, format, offset);
-}
-
-void CommandBuffer::add_vertex_binding_description(uint32_t binding, uint32_t stride, VkVertexInputRate input_rate) {
-    pipeline_state.add_vertex_binding_description(binding, stride, input_rate);
-}
-
 void CommandBuffer::set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range) {
     sets[set].set_uniform_buffer(binding, buffer, offset, range);
 }
@@ -116,8 +108,8 @@ void CommandBuffer::flush_descriptor_sets() {
         }
         if (sets[i].get_is_contents_dirty()) {
             context->update_descriptor_set(descriptor_sets[i], sets[i]);
-            sets[i].clear_dirty_flags();
         }
+        sets[i].clear_dirty_flags();
         auto descriptor_set = descriptor_sets[i].get_descriptor_set();
         vkCmdBindDescriptorSets(
             command_buffer,
@@ -198,14 +190,6 @@ void CommandBuffer::image_barrier(
 
 void CommandBuffer::set_depth_state(VkBool32 test_enable, VkBool32 write_enable, VkCompareOp compare_op) {
     pipeline_state.set_depth_state(test_enable, write_enable, compare_op);
-}
-
-void CommandBuffer::clear_vertex_attribute_descriptions() {
-    pipeline_state.clear_vertex_attribute_descriptions();
-}
-
-void CommandBuffer::clear_vertex_binding_descriptions() {
-    pipeline_state.clear_vertex_binding_descriptions();
 }
 
 void CommandBuffer::set_front_face(VkFrontFace front_face) {
@@ -313,6 +297,11 @@ void CommandBuffer::enable_blending(
 
 void CommandBuffer::disable_blending() {
     pipeline_state.disable_blending();
+}
+
+void CommandBuffer::set_vertex_format(VertexFormat vertex_format)
+{
+    pipeline_state.set_vertex_format(vertex_format);
 }
 
 }

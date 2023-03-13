@@ -2,6 +2,7 @@
 #include <cassert>
 #include <optional>
 #include "../common/hash_utils.hpp"
+#include <cstddef>
 
 namespace Morpho::Vulkan {
 
@@ -462,7 +463,7 @@ VkExtent2D Context::get_swapchain_extent() const {
 }
 
 Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& render_pass, uint32_t subpass) {
-    std:size_t hash = 0;
+    size_t hash = 0;
     hash_combine(hash, pipeline_state, render_pass.get_render_pass_layout().get_vulkan_handle(), subpass);
     VkPipeline pipeline;
     if (pipeline_cache.try_get(hash, pipeline)) {
@@ -480,23 +481,18 @@ Pipeline Context::acquire_pipeline(PipelineState &pipeline_state, RenderPass& re
         stages[i].pSpecializationInfo = nullptr;
     }
 
-    VkVertexInputAttributeDescription attributes_descriptions[Limits::MAX_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
-    for (uint32_t i = 0; i < pipeline_state.get_attribute_description_count(); i++) {
-        attributes_descriptions[i] = pipeline_state.get_vertex_attribute_description(i);
+    VertexFormat vertex_format = pipeline_state.get_vertex_format();
+    VertexFormatDescription vertex_format_desc;
+    if (!vertex_format_cache.try_get(vertex_format.get_hash(), vertex_format_desc)) {
+        throw std::runtime_error("Requested vertex format does not exist.");
     }
-
-    VkVertexInputBindingDescription binding_descriptions[Limits::MAX_VERTEX_INPUT_BINDING_COUNT];
-    for (uint32_t i = 0; i < pipeline_state.get_vertex_binding_description_count(); i++) {
-        binding_descriptions[i] = pipeline_state.get_vertex_binding_description(i);
-    }
-
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state{};
     vertex_input_state.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input_state.vertexBindingDescriptionCount = pipeline_state.get_vertex_binding_description_count();
-    vertex_input_state.pVertexBindingDescriptions = binding_descriptions;
-    vertex_input_state.vertexAttributeDescriptionCount = pipeline_state.get_attribute_description_count();
-    vertex_input_state.pVertexAttributeDescriptions = attributes_descriptions;
+    vertex_input_state.vertexBindingDescriptionCount = vertex_format_desc.binding_count;
+    vertex_input_state.pVertexBindingDescriptions = vertex_format_desc.bindings;
+    vertex_input_state.vertexAttributeDescriptionCount = vertex_format_desc.attribute_count;
+    vertex_input_state.pVertexAttributeDescriptions = vertex_format_desc.attributes;
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly_state{};
     input_assembly_state.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -900,6 +896,38 @@ Sampler Context::acquire_sampler(
     vkCreateSampler(device, &sampler_info, nullptr, &sampler);
 
     return Sampler(sampler);
+}
+
+VertexFormat Context::acquire_vertex_format(
+    VkVertexInputAttributeDescription* attributes,
+    uint32_t attribute_count,
+    VkVertexInputBindingDescription* bindings,
+    uint32_t binding_count
+) {
+    std::size_t hash;
+    hash_combine(hash, attribute_count, binding_count);
+    for (uint32_t i = 0; i < attribute_count; i++) {
+        auto& a = attributes[i];
+        hash_combine(hash, a.location, a.binding, a.format, a.offset);
+    }
+    for (uint32_t i = 0; i < binding_count; i++) {
+        auto& b = bindings[i];
+        hash_combine(hash, b.binding, b.stride, b.inputRate);
+    }
+    VertexFormatDescription format_desc;
+    if (vertex_format_cache.try_get(hash, format_desc)) {
+        return VertexFormat(hash);
+    }
+    for (uint32_t i = 0; i < attribute_count; i++) {
+        format_desc.attributes[i] = attributes[i];
+    }
+    for (uint32_t i = 0; i < binding_count; i++) {
+        format_desc.bindings[i] = bindings[i];
+    }
+    format_desc.attribute_count = attribute_count;
+    format_desc.binding_count = binding_count;
+    vertex_format_cache.add(hash, format_desc);
+    return VertexFormat(hash);
 }
 
 VkFormat Context::get_swapchain_format() const {

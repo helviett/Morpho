@@ -24,6 +24,7 @@
 #include "render_pass_layout.hpp"
 #include "../common/resource_cache.hpp"
 #include "descriptor_pool.hpp"
+#include "vertex_format.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -126,6 +127,12 @@ public:
         VkBool32 compare_enable = VK_FALSE,
         VkCompareOp compare_op = VK_COMPARE_OP_NEVER
     );
+    VertexFormat acquire_vertex_format(
+        VkVertexInputAttributeDescription* attributes,
+        uint32_t attribute_count,
+        VkVertexInputBindingDescription* bindings,
+        uint32_t binding_count
+    );
 
 
     // public WSI stuff
@@ -141,6 +148,14 @@ private:
     const bool enable_validation_layers = true;
 #endif
 
+    struct VertexFormatDescription 
+    {
+        VkVertexInputAttributeDescription attributes[Limits::MAX_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
+        uint32_t attribute_count;
+        VkVertexInputBindingDescription bindings[Limits::MAX_VERTEX_INPUT_BINDING_COUNT];
+        uint32_t binding_count;
+    };
+
     uint32_t frame_context_count = 1;
     uint32_t frame_context_index = 0;
     uint32_t swapchain_image_index;
@@ -155,6 +170,7 @@ private:
     ResourceCache<VkDescriptorSetLayout> descriptor_set_layout_cache;
     ResourceCache<VkRenderPass> render_pass_cache;
     ResourceCache<VkPipeline> pipeline_cache;
+    ResourceCache<VertexFormatDescription> vertex_format_cache;
 
     struct FrameContext {
         // Stays here for a while for simplicity
