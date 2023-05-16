@@ -1,12 +1,10 @@
 ﻿# CMakeList.txt : CMake project for Morpho, include source and define
 # project specific logic here.
 #
-cmake_minimum_required (VERSION 3.12)
+cmake_minimum_required (VERSION 3.15)
 
 
 set(CMAKE_CXX_STANDARD 17)
-include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
-conan_basic_setup()
 
 find_package(Vulkan REQUIRED)
 
@@ -36,6 +34,7 @@ set(SOURCE_FILES
     vulkan/sampler.hpp vulkan/sampler.cpp
     common/resource_cache.hpp
     common/hash_utils.hpp
+    common/slot_map.hpp
     vulkan/descriptor_pool.hpp vulkan/descriptor_pool.cpp
     vulkan/vertex_format.hpp vulkan/vertex_format.cpp
 )
@@ -43,5 +42,8 @@ set(SOURCE_FILES
 # Add source to this project's executable.
 add_library (Morpho STATIC ${SOURCE_FILES})
 
-target_link_libraries(Morpho ${CONAN_LIBS} Vulkan::Vulkan)
+find_package(vulkan-memory-allocator CONFIG REQUIRED)
+find_package(glfw3 REQUIRED)
+
+target_link_libraries(Morpho glfw vulkan-memory-allocator::vulkan-memory-allocator Vulkan::Vulkan)
 target_include_directories(Morpho PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
