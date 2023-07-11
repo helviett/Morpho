@@ -1,12 +1,8 @@
 #pragma once
 #include <vulkan/vulkan.h>
-#include "shader.hpp"
-#include "pipeline.hpp"
-#include "buffer.hpp"
-#include "pipeline_layout.hpp"
 #include "limits.hpp"
+#include "resources.hpp"
 #include "../common/hash_utils.hpp"
-#include "vertex_format.hpp"
 
 namespace Morpho::Vulkan {
 

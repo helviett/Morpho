@@ -1,7 +1,6 @@
 #include "application.hpp"
 #include <fstream>
 #include <stb_image.h>
-#include "vulkan/render_pass.hpp"
 #include <glm/gtc/matrix_access.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtc/type_ptr.hpp>

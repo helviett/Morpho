@@ -1,15 +1,9 @@
 #pragma once
 #include <vulkan/vulkan.h>
-#include "render_pass.hpp"
-#include "pipeline_state.hpp"
-#include "buffer.hpp"
-#include "shader.hpp"
-#include "resource_set.hpp"
-#include "pipeline.hpp"
-#include "descriptor_set.hpp"
 #include "limits.hpp"
-#include "image.hpp"
-#include "framebuffer.hpp"
+#include "resources.hpp"
+#include "pipeline_state.hpp"
+#include "resource_set.hpp"
 
 namespace Morpho::Vulkan {
 

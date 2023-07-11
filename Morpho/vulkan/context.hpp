@@ -8,23 +8,13 @@
 #include <iostream>
 #include <array>
 #include <functional>
+#include "resources.hpp"
 #include "command_buffer.hpp"
-#include "render_pass.hpp"
-#include "render_pass.hpp"
-#include "framebuffer.hpp"
-#include "shader.hpp"
 #include "pipeline_state.hpp"
-#include "pipeline.hpp"
 #include "vma.hpp"
-#include "buffer.hpp"
 #include "limits.hpp"
-#include "image.hpp"
-#include "image_view.hpp"
-#include "sampler.hpp"
-#include "render_pass_layout.hpp"
 #include "../common/resource_cache.hpp"
 #include "descriptor_pool.hpp"
-#include "vertex_format.hpp"
 
 namespace Morpho::Vulkan {
 

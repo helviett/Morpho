@@ -1,7 +1,6 @@
 #pragma once
 #include <vulkan/vulkan.h>
-#include "descriptor_set.hpp"
-#include "descriptor_set_layout.hpp"
+#include "resources.hpp"
 
 namespace Morpho::Vulkan {
 

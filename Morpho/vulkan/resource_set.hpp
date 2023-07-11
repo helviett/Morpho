@@ -1,9 +1,8 @@
 #pragma once
 #include <vulkan/vulkan.h>
-#include "resource_binding.hpp"
 #include "limits.hpp"
-#include "sampler.hpp"
-#include "image_view.hpp"
+#include "resources.hpp"
+#include "resource_binding.hpp"
 
 namespace Morpho::Vulkan {
 
