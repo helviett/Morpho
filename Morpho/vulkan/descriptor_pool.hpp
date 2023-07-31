@@ -13,7 +13,7 @@ public:
     DescriptorPool(DescriptorPool&&) = default;
     DescriptorPool& operator=(DescriptorPool&&) = default;
 
-    bool try_allocate_set(const DescriptorSetLayout& layout, DescriptorSet& set);
+    bool try_allocate_set(const VkDescriptorSetLayout& layout, DescriptorSet& set);
     void reset();
 private:
     VkDevice device;

@@ -53,15 +53,6 @@ void CommandBuffer::copy_buffer(Buffer source, Buffer destination, VkDeviceSize 
     vkCmdCopyBuffer(command_buffer, src, dst, 1, &region);
 }
 
-void CommandBuffer::add_shader(const Shader shader) {
-    pipeline_state.add_shader(shader);
-}
-
-
-void CommandBuffer::clear_shaders() {
-    pipeline_state.clear_shaders();
-}
-
 void CommandBuffer::set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range) {
     sets[set].set_uniform_buffer(binding, buffer, offset, range);
 }
@@ -76,21 +67,6 @@ void CommandBuffer::set_combined_image_sampler(
     sets[set].set_combined_image_sampler(binding, image_view, sampler, image_layout);
 }
 
-void CommandBuffer::flush_pipeline() {
-    bool is_pipeline_layout_dirty = false;
-    for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
-        is_pipeline_layout_dirty |= sets[i].get_is_layout_dirty();
-    }
-    if (is_pipeline_layout_dirty) {
-        PipelineLayout pipeline_layout = context->acquire_pipeline_layout(sets);
-        pipeline_state.set_pipeline_layout(pipeline_layout);
-    }
-    if (pipeline_state.get_and_clear_is_dirty()) {
-        pipeline = context->acquire_pipeline(pipeline_state, current_render_pass, 0);
-        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.get_pipeline());
-    }
-}
-
 void CommandBuffer::flush_descriptor_sets() {
     bool is_pipeline_layout_dirty = false;
     for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
@@ -102,7 +78,7 @@ void CommandBuffer::flush_descriptor_sets() {
             || sets[i].get_is_contents_dirty()
         ) {
             descriptor_sets[i] = context->acquire_descriptor_set(
-                pipeline_state.get_pipeline_layout().get_descriptor_set_layout(i)
+                pipeline.pipeline_layout.descriptor_set_layouts[i]
             );
             sets[i].mark_all_dirty();
         }
@@ -114,7 +90,7 @@ void CommandBuffer::flush_descriptor_sets() {
         vkCmdBindDescriptorSets(
             command_buffer,
             VK_PIPELINE_BIND_POINT_GRAPHICS,
-            pipeline_state.get_pipeline_layout().get_pipeline_layout(),
+            pipeline.pipeline_layout.pipeline_layout,
             i,
             1,
             &descriptor_set,
@@ -125,7 +101,6 @@ void CommandBuffer::flush_descriptor_sets() {
 }
 
 void CommandBuffer::flush() {
-    flush_pipeline();
     flush_descriptor_sets();
 }
 
@@ -188,18 +163,6 @@ void CommandBuffer::image_barrier(
     );
 }
 
-void CommandBuffer::set_depth_state(VkBool32 test_enable, VkBool32 write_enable, VkCompareOp compare_op) {
-    pipeline_state.set_depth_state(test_enable, write_enable, compare_op);
-}
-
-void CommandBuffer::set_front_face(VkFrontFace front_face) {
-    pipeline_state.set_front_face(front_face);
-}
-
-void CommandBuffer::set_cull_mode(VkCullModeFlags cull_mode) {
-    pipeline_state.set_cull_mode(cull_mode);
-}
-
 void CommandBuffer::buffer_barrier(
     const Buffer& buffer,
     VkPipelineStageFlags src_stages,
@@ -232,16 +195,10 @@ void CommandBuffer::buffer_barrier(
     );
 }
 
-
-void CommandBuffer::set_topology(VkPrimitiveTopology topology) {
-    pipeline_state.set_topology(topology);
-}
-
 void CommandBuffer::reset() {
     for (size_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
         sets[i] = ResourceSet();
     }
-    pipeline_state = PipelineState();
 }
 
 void CommandBuffer::set_viewport(VkViewport viewport) {
@@ -269,39 +226,10 @@ void CommandBuffer::begin_render_pass(
     vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 }
 
-void CommandBuffer::enable_depth_bias(float depth_bias_constant_factor, float depth_bias_slope_factor) {
-    pipeline_state.enable_depth_bias(depth_bias_constant_factor, depth_bias_slope_factor);
-}
-
-void CommandBuffer::disable_depth_bias() {
-    pipeline_state.disable_depth_bias();
-}
-
-void CommandBuffer::enable_blending(
-    VkBlendFactor src_color_blend_factor,
-    VkBlendFactor dst_color_blend_factor,
-    VkBlendOp color_blend_op,
-    VkBlendFactor src_alpha_blend_factor,
-    VkBlendFactor dst_alpha_blend_factor,
-    VkBlendOp alpha_blend_op
-) {
-    pipeline_state.enable_blending(
-        src_color_blend_factor,
-        dst_color_blend_factor,
-        color_blend_op,
-        src_alpha_blend_factor,
-        dst_alpha_blend_factor,
-        alpha_blend_op
-    );
-}
-
-void CommandBuffer::disable_blending() {
-    pipeline_state.disable_blending();
-}
-
-void CommandBuffer::set_vertex_format(VertexFormat vertex_format)
+void CommandBuffer::bind_pipeline(Pipeline& pipeline)
 {
-    pipeline_state.set_vertex_format(vertex_format);
+    this->pipeline = pipeline;
+    vkCmdBindPipeline(this->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
 }
 
 }

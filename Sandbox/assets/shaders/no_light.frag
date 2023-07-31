@@ -1,9 +1,10 @@
 #version 450
 
-layout(set = 1, binding = 0) uniform sampler2D base_color_texture;
-layout(set = 1, binding = 1) uniform Materal {
+layout(set = 1, binding = 0) uniform Materal {
     vec4 base_color_factor;
 } material;
+
+layout(set = 1, binding = 3) uniform sampler2D base_color_texture;
 layout(set = 1, binding = 4) uniform sampler2D normal_texture;
 
 layout(location = 0) in vec3 in_position;

@@ -3,7 +3,6 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
-#include "vulkan/pipeline_state.hpp"
 #include "vulkan/context.hpp"
 // #define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #include <glm/glm.hpp>
@@ -83,6 +82,7 @@ struct SpotLight {
 
 class Application {
 public:
+    void init();
     void run();
     void set_graphics_context(Morpho::Vulkan::Context* context);
     bool load_scene(std::filesystem::path file_path);
@@ -93,6 +93,22 @@ private:
     Morpho::Vulkan::Context* context;
     Morpho::Vulkan::Buffer vertex_buffer;
     Morpho::Vulkan::Buffer index_buffer;
+
+    Morpho::Vulkan::RenderPassLayout color_pass_layout;
+    Morpho::Vulkan::RenderPassLayout depth_pass_layout;
+    Morpho::Vulkan::PipelineLayout light_pipeline_layout;
+    Morpho::Vulkan::PipelineLayout shadow_map_debug_pipeline_layout;
+    Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw;
+    Morpho::Vulkan::Pipeline depth_pass_pipeline_cw;
+    Morpho::Vulkan::Pipeline spotlight_pipeline;
+    Morpho::Vulkan::Pipeline spotlight_pipeline_double_sided;
+    Morpho::Vulkan::Pipeline pointlight_pipeline;
+    Morpho::Vulkan::Pipeline pointlight_pipeline_double_sided;
+    Morpho::Vulkan::Pipeline no_light_pipeline;
+    Morpho::Vulkan::Pipeline no_light_pipeline_double_sided;
+    Morpho::Vulkan::Pipeline shadow_map_visualization_pipeline;
+    Morpho::Vulkan::RenderPass color_pass;
+    Morpho::Vulkan::RenderPass depth_pass;
     Morpho::Vulkan::Shader gltf_depth_pass_vertex_shader;
     Morpho::Vulkan::Shader gltf_spot_light_vertex_shader;
     Morpho::Vulkan::Shader gltf_point_light_vertex_shader;
@@ -100,7 +116,7 @@ private:
     Morpho::Vulkan::Shader gltf_point_light_fragment_shader;
     Morpho::Vulkan::Shader no_light_vertex_shader;
     Morpho::Vulkan::Shader no_light_fragment_shader;
-    Morpho::Vulkan::Shader depth_vertex_shader;
+    Morpho::Vulkan::Shader full_screen_triangle_shader;
     Morpho::Vulkan::Shader shadow_map_spot_light_fragment_shader;
     Morpho::Vulkan::Image image;
     Morpho::Vulkan::ImageView image_view;
@@ -138,6 +154,13 @@ private:
         {"TEXCOORD_0", 2},
         {"TANGENT", 3},
     };
+    std::map<std::string, uint32_t> attribute_name_to_binding = {
+        {"POSITION", 0},
+        {"NORMAL", 1},
+        {"TEXCOORD_0", 2},
+        {"TANGENT", 3},
+    };
+    std::map<uint32_t, Morpho::Vulkan::Pipeline> pipeline_cache;
 
     void main_loop();
     void initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd);

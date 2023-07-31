@@ -15,7 +15,6 @@ endif()
 set(SOURCE_FILES
     vulkan/command_buffer.hpp vulkan/command_buffer.cpp
     vulkan/context.hpp vulkan/context.cpp
-    vulkan/pipeline_state.hpp vulkan/pipeline_state.cpp
     vulkan/vma.hpp vulkan/vma.cpp
     vulkan/resource_binding.hpp vulkan/resource_binding.cpp
     vulkan/resource_set.hpp vulkan/resource_set.cpp

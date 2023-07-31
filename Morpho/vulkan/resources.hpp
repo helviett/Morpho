@@ -25,16 +25,6 @@ private:
     VmaAllocationInfo allocation_info;
 };
 
-class DescriptorSetLayout {
-public:
-    DescriptorSetLayout();
-    DescriptorSetLayout(VkDescriptorSetLayout descriptor_set_layout);
-
-    VkDescriptorSetLayout get_descriptor_set_layout() const;
-private:
-    VkDescriptorSetLayout descriptor_set_layout;
-};
-
 class DescriptorSet {
 public:
     DescriptorSet();
@@ -182,16 +172,6 @@ private:
     VkFramebuffer framebuffer;
 };
 
-class Pipeline {
-public:
-    Pipeline();
-    Pipeline(VkPipeline pipeline);
-
-    VkPipeline get_pipeline() const;
-private:
-    VkPipeline pipeline;
-};
-
 class Sampler {
 public:
     Sampler();
@@ -229,26 +209,40 @@ private:
     std::string entry_point;
 };
 
-class VertexFormat {
-public:
-    VertexFormat();
-    VertexFormat(std::size_t hash);
-
-    std::size_t get_hash() const;
-private:
-    std::size_t hash;
+struct PipelineLayoutInfo {
+    VkDescriptorSetLayoutBinding* set_binding_infos[Limits::MAX_DESCRIPTOR_SET_COUNT];
+    uint32_t set_binding_count[Limits::MAX_DESCRIPTOR_SET_COUNT];
 };
 
-class PipelineLayout {
-public:
-    PipelineLayout();
-    PipelineLayout(VkPipelineLayout pipeline_layout, DescriptorSetLayout descriptor_set_layouts[Limits::MAX_DESCRIPTOR_SET_COUNT]);
-
-    VkPipelineLayout get_pipeline_layout() const;
-    DescriptorSetLayout get_descriptor_set_layout(uint32_t index) const;
-private:
+struct PipelineLayout {
     VkPipelineLayout pipeline_layout;
-    DescriptorSetLayout descriptor_set_layouts[Limits::MAX_DESCRIPTOR_SET_COUNT];
+    VkDescriptorSetLayout descriptor_set_layouts[Limits::MAX_DESCRIPTOR_SET_COUNT];
+};
+
+struct PipelineInfo {
+    Shader* shaders;
+    uint32_t shader_count;
+    VkPrimitiveTopology primitive_topology;
+    VkVertexInputAttributeDescription* attributes;
+    uint32_t attribute_count;
+    VkVertexInputBindingDescription* bindings;
+    uint32_t binding_count;
+    VkCullModeFlags cull_mode;
+    VkFrontFace front_face;
+    float depth_bias_constant_factor;
+    float depth_bias_slope_factor;
+    bool depth_test_enabled;
+    bool depth_write_enabled;
+    VkCompareOp depth_compare_op;
+    VkPipelineColorBlendAttachmentState blend_state;
+    RenderPassLayout* render_pass_layout;
+    PipelineLayout* pipeline_layout;
+};
+
+struct Pipeline {
+    VkPipeline pipeline;
+    // TODO: Remove
+    PipelineLayout pipeline_layout;
 };
 
 }

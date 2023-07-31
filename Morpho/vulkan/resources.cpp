@@ -24,15 +24,6 @@ VmaAllocation Buffer::get_allocation() const {
     return allocation;
 }
 
-DescriptorSetLayout::DescriptorSetLayout(): descriptor_set_layout(VK_NULL_HANDLE) { }
-
-DescriptorSetLayout::DescriptorSetLayout(VkDescriptorSetLayout descriptor_set_layout)
-    : descriptor_set_layout(descriptor_set_layout) { }
-
-VkDescriptorSetLayout DescriptorSetLayout::get_descriptor_set_layout() const {
-    return descriptor_set_layout;
-}
-
 DescriptorSet::DescriptorSet(): descriptor_set(VK_NULL_HANDLE) { }
 
 DescriptorSet::DescriptorSet(VkDescriptorSet descriptor_set): descriptor_set(descriptor_set) { }
@@ -162,16 +153,6 @@ VkImageView ImageView::get_image_view() const {
     return image_view;
 }
 
-Pipeline::Pipeline(): pipeline(VK_NULL_HANDLE) { }
-
-Pipeline::Pipeline(VkPipeline pipeline) {
-    this->pipeline = pipeline;
-}
-
-VkPipeline Pipeline::get_pipeline() const {
-    return pipeline;
-}
-
 Sampler::Sampler(): sampler(VK_NULL_HANDLE) { }
 
 Sampler::Sampler(VkSampler sampler): sampler(sampler) { }
@@ -221,33 +202,6 @@ const std::string& Shader::get_entry_point() const {
 
 VkShaderModule Shader::get_shader_module() const {
     return shader_module;
-}
-
-VertexFormat::VertexFormat() : hash(0) {}
-
-VertexFormat::VertexFormat(std::size_t hash) : hash(hash) {}
-
-std::size_t VertexFormat::get_hash() const {
-    return hash;
-}
-
-PipelineLayout::PipelineLayout(): pipeline_layout(VK_NULL_HANDLE) { }
-
-PipelineLayout::PipelineLayout(
-    VkPipelineLayout pipeline_layout,
-    DescriptorSetLayout descriptor_set_layouts[Limits::MAX_DESCRIPTOR_SET_COUNT]
-): pipeline_layout(pipeline_layout) {
-    for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
-        this->descriptor_set_layouts[i] = descriptor_set_layouts[i];
-    }
-}
-
-VkPipelineLayout PipelineLayout::get_pipeline_layout() const {
-    return pipeline_layout;
-}
-
-DescriptorSetLayout PipelineLayout::get_descriptor_set_layout(uint32_t index) const {
-    return descriptor_set_layouts[index];
 }
 
 }

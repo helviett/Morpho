@@ -8,7 +8,192 @@
 
 namespace fs = std::filesystem;
 
-void Application::run() {
+void Application::init()
+{
+    gltf_depth_pass_vertex_shader = load_shader("./assets/shaders/gltf_depth_pass.vert.spv");
+    gltf_spot_light_vertex_shader = load_shader("./assets/shaders/gltf_spot_light.vert.spv");
+    gltf_point_light_vertex_shader = load_shader("./assets/shaders/gltf_point_light.vert.spv");
+    gltf_spot_light_fragment_shader = load_shader("./assets/shaders/gltf_spot_light.frag.spv");
+    gltf_point_light_fragment_shader = load_shader("./assets/shaders/gltf_point_light.frag.spv");
+    full_screen_triangle_shader = load_shader("./assets/shaders/full_screen_triangle.vert.spv");
+    shadow_map_spot_light_fragment_shader = load_shader("./assets/shaders/shadow_map_spot_light.frag.spv");
+    no_light_vertex_shader = load_shader("./assets/shaders/no_light.vert.spv");
+    no_light_fragment_shader = load_shader("./assets/shaders/no_light.frag.spv");
+
+    using namespace Morpho::Vulkan;
+
+    color_pass_layout = context->acquire_render_pass_layout(RenderPassLayoutInfoBuilder()
+        .attachment(VK_FORMAT_D16_UNORM)
+        .attachment(context->get_swapchain_format())
+        .subpass({1}, 0)
+        .info()
+    );
+
+    depth_pass_layout = context->acquire_render_pass_layout(RenderPassLayoutInfoBuilder()
+        .attachment(VK_FORMAT_D16_UNORM)
+        .subpass({}, 0)
+        .info()
+    );
+
+    depth_pass = context->acquire_render_pass(RenderPassInfoBuilder()
+        .layout(depth_pass_layout)
+        .attachment(
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        ).info()
+    );
+
+    color_pass = context->acquire_render_pass(Morpho::Vulkan::RenderPassInfoBuilder()
+        .layout(color_pass_layout)
+        .attachment(
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        ).attachment(
+            VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+        ).info()
+    );
+
+    VkDescriptorSetLayoutBinding set0_bindings[16] = {};
+    VkDescriptorSetLayoutBinding set1_bindings[16] = {};
+    PipelineLayoutInfo pipeline_layout_info{};
+    pipeline_layout_info.set_binding_infos[0] = set0_bindings;
+    pipeline_layout_info.set_binding_infos[1] = set1_bindings;
+    {
+        for (uint32_t i = 0; i < 3; i++) {
+            set0_bindings[i] = { i, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, };
+        }
+        pipeline_layout_info.set_binding_count[0] = 3;
+
+        for (uint32_t i = 0; i < 3; i++) {
+            set1_bindings[i] = { i, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, };
+        }
+
+        for (uint32_t i = 3; i < 6; i++) {
+            set1_bindings[i] = { i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
+        }
+        pipeline_layout_info.set_binding_count[1] = 6;
+        light_pipeline_layout = context->create_pipeline_layout(pipeline_layout_info);
+    }
+    {
+        pipeline_layout_info.set_binding_count[0] = 2;
+        pipeline_layout_info.set_binding_count[1] = 0;
+        pipeline_layout_info.set_binding_infos[1] = nullptr;
+        set0_bindings[0] = { 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
+        set0_bindings[1] = { 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, };
+        shadow_map_debug_pipeline_layout = context->create_pipeline_layout(pipeline_layout_info);
+    }
+
+    PipelineInfo pipeline_info{};
+    VkVertexInputAttributeDescription attributes[4];
+    attributes[0] = { 0, 0, VK_FORMAT_R32G32B32_SFLOAT, 0, }; // Position
+    attributes[1] = { 1, 1, VK_FORMAT_R32G32B32_SFLOAT, 0, }; // Normal
+    attributes[2] = { 2, 2, VK_FORMAT_R32G32_SFLOAT, 0, }; // Texture coordinates
+    attributes[3] = { 3, 3, VK_FORMAT_R32G32B32A32_SFLOAT, 0, }; // Tangent
+    VkVertexInputBindingDescription bindings[4];
+    bindings[0] = { 0, sizeof(float) * 3, VK_VERTEX_INPUT_RATE_VERTEX, };
+    bindings[1] = { 1, sizeof(float) * 3, VK_VERTEX_INPUT_RATE_VERTEX, };
+    bindings[2] = { 2, sizeof(float) * 2, VK_VERTEX_INPUT_RATE_VERTEX, };
+    bindings[3] = { 3, sizeof(float) * 4, VK_VERTEX_INPUT_RATE_VERTEX, };
+    Shader shaders[2];
+    pipeline_info.attributes = attributes;
+    pipeline_info.bindings = bindings;
+    pipeline_info.shaders = shaders;
+    pipeline_info.primitive_topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+    VkPipelineColorBlendAttachmentState no_blend{};
+    no_blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    VkPipelineColorBlendAttachmentState additive =  {
+        VK_TRUE,
+        VK_BLEND_FACTOR_ONE,
+        VK_BLEND_FACTOR_ONE,
+        VK_BLEND_OP_ADD,
+        VK_BLEND_FACTOR_ONE,
+        VK_BLEND_FACTOR_ONE,
+        VK_BLEND_OP_ADD,
+        VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
+    };
+    // light
+    pipeline_info.shader_count = 2;
+    // TODO Additive and Z-Prepass
+    pipeline_info.blend_state = no_blend;
+    pipeline_info.front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+    pipeline_info.render_pass_layout = &color_pass_layout;
+    pipeline_info.pipeline_layout = &light_pipeline_layout;
+    pipeline_info.attribute_count = 4;
+    pipeline_info.binding_count = 4;
+    pipeline_info.depth_test_enabled = true;
+    pipeline_info.depth_write_enabled = true;
+    pipeline_info.depth_compare_op = VK_COMPARE_OP_LESS_OR_EQUAL;
+    {
+        // Spot light shading.
+        pipeline_info.shaders[0] = gltf_spot_light_vertex_shader;
+        pipeline_info.shaders[1] = gltf_spot_light_fragment_shader;
+        pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
+        spotlight_pipeline = context->create_pipeline(pipeline_info);
+        pipeline_info.cull_mode = VK_CULL_MODE_NONE;
+        spotlight_pipeline_double_sided = context->create_pipeline(pipeline_info);
+    }
+    {
+        // Point light shading.
+        pipeline_info.shaders[0] = gltf_point_light_vertex_shader;
+        pipeline_info.shaders[1] = gltf_point_light_fragment_shader;
+        pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
+        pointlight_pipeline = context->create_pipeline(pipeline_info);
+        pipeline_info.cull_mode = VK_CULL_MODE_NONE;
+        pointlight_pipeline_double_sided = context->create_pipeline(pipeline_info);
+    }
+    pipeline_info.blend_state = no_blend;
+    {
+        // No light shading.
+        pipeline_info.shaders[0] = no_light_vertex_shader;
+        pipeline_info.shaders[1] = no_light_fragment_shader;
+        pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
+        no_light_pipeline = context->create_pipeline(pipeline_info);
+        pipeline_info.cull_mode = VK_CULL_MODE_NONE;
+        no_light_pipeline_double_sided = context->create_pipeline(pipeline_info);
+    }
+    {
+        // Depth pass.
+        pipeline_info.depth_bias_constant_factor = 4.0f;
+        pipeline_info.depth_bias_slope_factor = 1.5f;
+        pipeline_info.shader_count = 1;
+        pipeline_info.shaders[0] = gltf_depth_pass_vertex_shader;
+        pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
+        pipeline_info.render_pass_layout = &depth_pass_layout;
+        depth_pass_pipeline_ccw = context->create_pipeline(pipeline_info);
+        pipeline_info.front_face = VK_FRONT_FACE_CLOCKWISE;
+        depth_pass_pipeline_cw = context->create_pipeline(pipeline_info);
+    }
+    pipeline_info.depth_test_enabled = false;
+    pipeline_info.depth_write_enabled = false;
+    pipeline_info.depth_bias_constant_factor = pipeline_info.depth_bias_slope_factor = 0.0f;
+    {
+        // Shadow map debug
+        pipeline_info.attribute_count = 0;
+        pipeline_info.binding_count = 0;
+        pipeline_info.render_pass_layout = &color_pass_layout;
+        pipeline_info.shader_count = 2;
+        pipeline_info.shaders[0] = full_screen_triangle_shader;
+        pipeline_info.shaders[1] = shadow_map_spot_light_fragment_shader;
+        pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
+        pipeline_info.pipeline_layout = &shadow_map_debug_pipeline_layout;
+        shadow_map_visualization_pipeline = context->create_pipeline(pipeline_info);
+    }
+
+    default_sampler = context->acquire_sampler(VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_FILTER_LINEAR);
+    shadow_sampler = context->acquire_sampler(
+        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
+        VK_FILTER_LINEAR,
+        VK_TRUE,
+        VK_COMPARE_OP_LESS
+    );
+}
+
+void Application::run()
+{
     init_window();
     initialize_key_map();
     context->init(window);
@@ -132,9 +317,7 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
     vp_buffer.update(&vp, sizeof(ViewProjection));
     cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
     cmd.set_uniform_buffer(0, 2, vp_buffer, 0, sizeof(ViewProjection));
-    cmd.add_shader(gltf_depth_pass_vertex_shader);
-    cmd.set_depth_state(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
-    cmd.enable_depth_bias(4.0f, 1.5f);
+    cmd.bind_pipeline(depth_pass_pipeline_ccw);
     auto depth_image = context->acquire_temporary_image(
         { extent.width, extent.height, 1 },
         VK_FORMAT_D16_UNORM,
@@ -145,19 +328,6 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
         VK_FORMAT_D16_UNORM,
         depth_image,
         VK_IMAGE_ASPECT_DEPTH_BIT
-    );
-    auto depth_pass_layout = context->acquire_render_pass_layout(Morpho::Vulkan::RenderPassLayoutInfoBuilder()
-        .attachment(VK_FORMAT_D16_UNORM)
-        .subpass({}, 0)
-        .info()
-    );
-    auto depth_pass = context->acquire_render_pass(Morpho::Vulkan::RenderPassInfoBuilder()
-        .layout(depth_pass_layout)
-        .attachment(
-            VK_ATTACHMENT_LOAD_OP_CLEAR,
-            VK_ATTACHMENT_STORE_OP_STORE,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-        ).info()
     );
     auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
         .layout(depth_pass_layout)
@@ -195,9 +365,7 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
     const PointLight& point_light
 ) {
     cmd.reset();
-    cmd.add_shader(gltf_depth_pass_vertex_shader);
-    cmd.set_depth_state(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS);
-    cmd.enable_depth_bias(4.0f, 1.5f);
+    cmd.bind_pipeline(depth_pass_pipeline_cw);
     auto extent = context->get_swapchain_extent();
     extent.width = extent.height = std::max(extent.width, extent.height);
     cmd.set_viewport({0, 0, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
@@ -209,19 +377,6 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
         VMA_MEMORY_USAGE_GPU_ONLY,
         6,
         VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT
-    );
-    auto depth_pass_layout = context->acquire_render_pass_layout(Morpho::Vulkan::RenderPassLayoutInfoBuilder()
-        .attachment(VK_FORMAT_D16_UNORM)
-        .subpass({}, 0)
-        .info()
-    );
-    auto depth_pass = context->acquire_render_pass(Morpho::Vulkan::RenderPassInfoBuilder()
-        .layout(depth_pass_layout)
-        .attachment(
-            VK_ATTACHMENT_LOAD_OP_CLEAR,
-            VK_ATTACHMENT_STORE_OP_STORE,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-        ).info()
     );
     auto x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
     auto y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
@@ -238,7 +393,6 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
     glm::vec3 dirs[6] = {
         x, -x, y, -y, z, -z,
     };
-    cmd.set_front_face(VK_FRONT_FACE_CLOCKWISE);
     ViewProjection vp;
     vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
     for (uint32_t i = 0; i < 6; i++) {
@@ -317,24 +471,6 @@ void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
         depth_image,
         VK_IMAGE_ASPECT_DEPTH_BIT
     );
-    auto color_pass_layout = context->acquire_render_pass_layout(Morpho::Vulkan::RenderPassLayoutInfoBuilder()
-        .attachment(VK_FORMAT_D16_UNORM)
-        .attachment(context->get_swapchain_format())
-        .subpass({1}, 0)
-        .info()
-    );
-    auto color_pass = context->acquire_render_pass(Morpho::Vulkan::RenderPassInfoBuilder()
-        .layout(color_pass_layout)
-        .attachment(
-            VK_ATTACHMENT_LOAD_OP_CLEAR,
-            VK_ATTACHMENT_STORE_OP_STORE,
-            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-        ).attachment(
-            VK_ATTACHMENT_LOAD_OP_CLEAR,
-            VK_ATTACHMENT_STORE_OP_STORE,
-            VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-        ).info()
-    );
     auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
         .layout(color_pass_layout)
         .extent(extent)
@@ -351,7 +487,6 @@ void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
             {0.0f, 0.0f, 0.0f, 0.0f},
         }
     );
-    cmd.set_depth_state(VK_TRUE, VK_TRUE, VK_COMPARE_OP_LESS_OR_EQUAL);
 }
 
 void Application::render_color_pass(
@@ -381,20 +516,9 @@ void Application::render_color_pass(
     vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
     lvp_buffer.update(&vp, sizeof(ViewProjection));
     cmd.set_uniform_buffer(0, 2, lvp_buffer, 0, sizeof(ViewProjection));
-    cmd.clear_shaders();
-    cmd.add_shader(gltf_point_light_vertex_shader);
-    cmd.add_shader(gltf_point_light_fragment_shader);
-    cmd.set_combined_image_sampler(1, 7, shadow_map, shadow_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    cmd.bind_pipeline(pointlight_pipeline_double_sided);
+    cmd.set_combined_image_sampler(1, 5, shadow_map, shadow_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     draw_model(model, cmd);
-    cmd.set_depth_state(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
-    cmd.enable_blending(
-        VK_BLEND_FACTOR_ONE,
-        VK_BLEND_FACTOR_ONE,
-        VK_BLEND_OP_ADD,
-        VK_BLEND_FACTOR_ZERO,
-        VK_BLEND_FACTOR_ZERO,
-        VK_BLEND_OP_ADD
-    );
 }
 
 void Application::render_color_pass(
@@ -424,29 +548,14 @@ void Application::render_color_pass(
     lvp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
     lvp_buffer.update(&lvp, sizeof(ViewProjection));
     cmd.set_uniform_buffer(0, 2, lvp_buffer, 0, sizeof(ViewProjection));
-    cmd.clear_shaders();
-    cmd.add_shader(gltf_spot_light_vertex_shader);
-    cmd.add_shader(gltf_spot_light_fragment_shader);
-    cmd.set_combined_image_sampler(1, 7, shadow_map, shadow_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    cmd.bind_pipeline(spotlight_pipeline_double_sided);
+    cmd.set_combined_image_sampler(1, 5, shadow_map, shadow_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     draw_model(model, cmd);
-    cmd.set_depth_state(VK_TRUE, VK_FALSE, VK_COMPARE_OP_LESS_OR_EQUAL);
-    cmd.enable_blending(
-        VK_BLEND_FACTOR_ONE,
-        VK_BLEND_FACTOR_ONE,
-        VK_BLEND_OP_ADD,
-        VK_BLEND_FACTOR_ZERO,
-        VK_BLEND_FACTOR_ZERO,
-        VK_BLEND_OP_ADD
-    );
 }
 
 void Application::draw_depth_image(Morpho::Vulkan::CommandBuffer &cmd, Morpho::Vulkan::ImageView depth_map) {
     cmd.reset();
-    cmd.add_shader(depth_vertex_shader);
-    cmd.add_shader(shadow_map_spot_light_fragment_shader);
-    VkVertexInputAttributeDescription attribute = { 0, 0, VK_FORMAT_R32G32_SFLOAT, 0 };
-    VkVertexInputBindingDescription binding = { 0, sizeof(glm::vec2), VK_VERTEX_INPUT_RATE_VERTEX };
-    cmd.set_vertex_format(context->acquire_vertex_format(&attribute, 1, &binding, 1));
+    cmd.bind_pipeline(shadow_map_visualization_pipeline);
     cmd.set_combined_image_sampler(0, 0, depth_map, default_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
     float projection_params[2] = { 0.01f, 10.0f, };
     auto projection_params_buffer = context->acquire_staging_buffer(
@@ -456,22 +565,7 @@ void Application::draw_depth_image(Morpho::Vulkan::CommandBuffer &cmd, Morpho::V
     );
     projection_params_buffer.update(projection_params, sizeof(projection_params));
     cmd.set_uniform_buffer(0, 1, projection_params_buffer, 0, sizeof(projection_params));
-    glm::vec2 positions[] {
-        glm::vec2(-1.0f, -1.0f),
-        glm::vec2(-1.0f,  1.0f),
-        glm::vec2(1.0f, -1.0f),
-        glm::vec2(1.0f,  1.0f),
-    };
-    auto vertex_buffer = context->acquire_staging_buffer(
-        sizeof(positions),
-        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
-    );
-    vertex_buffer.update(positions, sizeof(positions));
-    cmd.set_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_STRIP);
-    cmd.bind_vertex_buffer(vertex_buffer, 0);
-    cmd.set_cull_mode(VK_CULL_MODE_NONE);
-    cmd.draw(5, 1, 0, 0);
+    cmd.draw(3, 1, 0, 0);
 }
 
 std::vector<char> Application::read_file(const std::string& filename) {
@@ -489,22 +583,6 @@ std::vector<char> Application::read_file(const std::string& filename) {
 }
 
 void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd) {
-    gltf_depth_pass_vertex_shader = load_shader("./assets/shaders/gltf_depth_pass.vert.spv");
-    gltf_spot_light_vertex_shader = load_shader("./assets/shaders/gltf_spot_light.vert.spv");
-    gltf_point_light_vertex_shader = load_shader("./assets/shaders/gltf_point_light.vert.spv");
-    gltf_spot_light_fragment_shader = load_shader("./assets/shaders/gltf_spot_light.frag.spv");
-    gltf_point_light_fragment_shader = load_shader("./assets/shaders/gltf_point_light.frag.spv");
-    depth_vertex_shader = load_shader("./assets/shaders/depth_map.vert.spv");
-    shadow_map_spot_light_fragment_shader = load_shader("./assets/shaders/shadow_map_spot_light.frag.spv");
-    no_light_vertex_shader = load_shader("./assets/shaders/no_light.vert.spv");
-    no_light_fragment_shader = load_shader("./assets/shaders/no_light.frag.spv");
-    default_sampler = context->acquire_sampler(VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_FILTER_LINEAR);
-    shadow_sampler = context->acquire_sampler(
-        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-        VK_FILTER_LINEAR,
-        VK_TRUE,
-        VK_COMPARE_OP_LESS
-    );
     uint32_t white_pixel = std::numeric_limits<uint32_t>::max();
     std::vector<uint32_t> white_pixels(1 * 1, white_pixel);
     white_image = context->acquire_image(
@@ -1001,16 +1079,16 @@ void Application::draw_primitive(
             if (location == attribute_name_to_location.end()) {
                 continue;
             }
-            attributes[attribute_count++] = { current_binding, location->second, gltf_to_format(accessor.type, accessor.componentType), 0 };
-            bindings[binding_count++] = { current_binding++, (uint32_t)accessor.ByteStride(buffer_view), VK_VERTEX_INPUT_RATE_VERTEX };
+            auto binding = attribute_name_to_binding.find(attribute_name)->second;
+            attributes[location->second] = { current_binding, location->second, gltf_to_format(accessor.type, accessor.componentType), 0 };
+            bindings[binding] = { binding, (uint32_t)accessor.ByteStride(buffer_view), VK_VERTEX_INPUT_RATE_VERTEX };
         }
-        cmd.set_vertex_format(context->acquire_vertex_format(attributes, attribute_count, bindings, binding_count));
         // Base color texture.
         auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
         auto base_color_image_view = base_color_texture_index < 0 ? white_image_view : texture_image_views[base_color_texture_index];
         auto base_color_sampler_index = base_color_texture_index < 0 ? -1 : model.textures[base_color_texture_index].sampler;
         auto base_color_sampler = base_color_sampler_index < 0 ? default_sampler : samplers[base_color_sampler_index];
-        cmd.set_combined_image_sampler(1, 0, base_color_image_view, base_color_sampler);
+        cmd.set_combined_image_sampler(1, 3, base_color_image_view, base_color_sampler);
         auto base_color_factor = glm::vec4(
             material.pbrMetallicRoughness.baseColorFactor[0],
             material.pbrMetallicRoughness.baseColorFactor[1],
@@ -1023,14 +1101,14 @@ void Application::draw_primitive(
             VMA_MEMORY_USAGE_CPU_TO_GPU
         );
         base_color_factor_buffer.update(&base_color_factor, sizeof(base_color_factor));
-        cmd.set_uniform_buffer(1, 1, base_color_factor_buffer, 0, sizeof(base_color_factor));
+        cmd.set_uniform_buffer(1, 0, base_color_factor_buffer, 0, sizeof(base_color_factor));
         // Normal map.
         auto normal_texture_index = material.normalTexture.index;
         auto normal_texture_image_view = normal_texture_index < 0 ? white_image_view : texture_image_views[normal_texture_index];
         auto normal_texture_sampler_index = normal_texture_index < 0 ? -1 : model.textures[normal_texture_index].sampler;
         auto normal_texture_sampler = normal_texture_sampler_index < 0 ? default_sampler : samplers[normal_texture_sampler_index];
         cmd.set_combined_image_sampler(1, 4, normal_texture_image_view, normal_texture_sampler);
-        cmd.set_cull_mode(material.doubleSided ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT);
+        // TODO: if (prevDoubleSided != material.doubleSided => bindPipeline(ds ? pds : p)
         current_material_index = primitive.material;
     }
     current_binding = 0;
@@ -1038,13 +1116,14 @@ void Application::draw_primitive(
         if (attribute_name_to_location.find(key_value.first) == attribute_name_to_location.end()) {
             continue;
         }
+        auto binding = attribute_name_to_binding.find(key_value.first)->second;
         auto& attribute_name = key_value.first;
         auto accessor_index = key_value.second;
         auto& accessor = model.accessors[accessor_index];
         auto& buffer_view = model.bufferViews[accessor.bufferView];
         cmd.bind_vertex_buffer(
             buffers[buffer_view.buffer],
-            current_binding++,
+            binding,
             accessor.byteOffset + buffer_view.byteOffset
         );
     }
@@ -1126,7 +1205,7 @@ void Application::setup_spot_light_uniforms(Morpho::Vulkan::CommandBuffer& cmd, 
         VMA_MEMORY_USAGE_CPU_TO_GPU
     );
     view_buffer.update(&view_position, sizeof(view_position));
-    cmd.set_uniform_buffer(1, 3, view_buffer, 0, sizeof(view_position));
+    cmd.set_uniform_buffer(1, 2, view_buffer, 0, sizeof(view_position));
 
     auto spot_light_buffer = context->acquire_staging_buffer(
         sizeof(spot_light),
@@ -1135,7 +1214,7 @@ void Application::setup_spot_light_uniforms(Morpho::Vulkan::CommandBuffer& cmd, 
     );
     assert(spot_light.penumbra >= spot_light.umbra);
     spot_light_buffer.update(&spot_light, sizeof(spot_light));
-    cmd.set_uniform_buffer(1, 6, spot_light_buffer, 0, sizeof(spot_light));
+    cmd.set_uniform_buffer(1, 1, spot_light_buffer, 0, sizeof(spot_light));
 }
 
 void Application::setup_point_light_uniforms(Morpho::Vulkan::CommandBuffer& cmd, const PointLight& point_light) {
@@ -1145,7 +1224,7 @@ void Application::setup_point_light_uniforms(Morpho::Vulkan::CommandBuffer& cmd,
         VMA_MEMORY_USAGE_CPU_TO_GPU
     );
     point_light_buffer.update(&point_light, sizeof(point_light));
-    cmd.set_uniform_buffer(1, 6, point_light_buffer, 0, sizeof(point_light));
+    cmd.set_uniform_buffer(1, 1, point_light_buffer, 0, sizeof(point_light));
 }
 
 Morpho::Vulkan::Shader Application::load_shader(const std::string& path) {

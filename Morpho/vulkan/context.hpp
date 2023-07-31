@@ -10,7 +10,6 @@
 #include <functional>
 #include "resources.hpp"
 #include "command_buffer.hpp"
-#include "pipeline_state.hpp"
 #include "vma.hpp"
 #include "limits.hpp"
 #include "../common/resource_cache.hpp"
@@ -58,7 +57,7 @@ public:
     RenderPassLayout acquire_render_pass_layout(const RenderPassLayoutInfo& info);
     RenderPass acquire_render_pass(const RenderPassInfo& info);
     Framebuffer acquire_framebuffer(const FramebufferInfo& info);
-    Pipeline acquire_pipeline(PipelineState &info, RenderPass& render_pass, uint32_t subpass);
+    Pipeline create_pipeline(PipelineInfo &pipeline_info);
     // Keep Vulkan and VMA flags for now for simplicity and prototyping speed.
     Buffer acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
     Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
@@ -66,7 +65,9 @@ public:
     void map_memory(VmaAllocation allocation, void **map);
     void unmap_memory(VmaAllocation allocation);
     PipelineLayout acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT]);
-    DescriptorSet acquire_descriptor_set(DescriptorSetLayout descriptor_set_layout);
+    PipelineLayout create_pipeline_layout(const PipelineLayoutInfo& pipeline_layout_info);
+    void destroy_pipline_layout(const PipelineLayout& pipeline_layout);
+    DescriptorSet acquire_descriptor_set(VkDescriptorSetLayout descriptor_set_layout);
     void update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set);
     Image acquire_image(
         VkExtent3D extent,
@@ -117,13 +118,6 @@ public:
         VkBool32 compare_enable = VK_FALSE,
         VkCompareOp compare_op = VK_COMPARE_OP_NEVER
     );
-    VertexFormat acquire_vertex_format(
-        VkVertexInputAttributeDescription* attributes,
-        uint32_t attribute_count,
-        VkVertexInputBindingDescription* bindings,
-        uint32_t binding_count
-    );
-
 
     // public WSI stuff
     ImageView get_swapchain_image_view() const;
@@ -138,14 +132,6 @@ private:
     const bool enable_validation_layers = true;
 #endif
 
-    struct VertexFormatDescription 
-    {
-        VkVertexInputAttributeDescription attributes[Limits::MAX_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
-        uint32_t attribute_count;
-        VkVertexInputBindingDescription bindings[Limits::MAX_VERTEX_INPUT_BINDING_COUNT];
-        uint32_t binding_count;
-    };
-
     uint32_t frame_context_count = 1;
     uint32_t frame_context_index = 0;
     uint32_t swapchain_image_index;
@@ -153,14 +139,13 @@ private:
     VkPhysicalDevice gpu = VK_NULL_HANDLE;
     VkInstance instance = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
+    VkDescriptorSetLayout empty_descriptor_set_layout;
     VkQueue graphics_queue;
     uint32_t graphics_queue_family_index;
     VmaAllocator allocator;
     ResourceCache<VkPipelineLayout> pipeline_layout_cache;
     ResourceCache<VkDescriptorSetLayout> descriptor_set_layout_cache;
     ResourceCache<VkRenderPass> render_pass_cache;
-    ResourceCache<VkPipeline> pipeline_cache;
-    ResourceCache<VertexFormatDescription> vertex_format_cache;
 
     struct FrameContext {
         // Stays here for a while for simplicity

@@ -7,20 +7,22 @@ struct PointLight {
     float intensity;
 };
 
-layout(set = 1, binding = 0) uniform sampler2D base_color_texture;
-layout(set = 1, binding = 1) uniform Materal {
-    vec4 base_color_factor;
-} material;
-layout(set = 1, binding = 4) uniform sampler2D normal_texture;
-layout(set = 1, binding = 6, std140) uniform PointLightBlock {
-    PointLight data;
-} point_light;
-layout(set = 1, binding = 7) uniform samplerCubeShadow shadow_map;
-
 layout(set = 0, binding = 2) uniform LightViewPorjectionBlock {
     mat4 view;
     mat4 proj;
 } lvp;
+
+layout(set = 1, binding = 0) uniform Materal {
+    vec4 base_color_factor;
+} material;
+
+layout(set = 1, binding = 1, std140) uniform PointLightBlock {
+    PointLight data;
+} point_light;
+
+layout(set = 1, binding = 3) uniform sampler2D base_color_texture;
+layout(set = 1, binding = 4) uniform sampler2D normal_texture;
+layout(set = 1, binding = 5) uniform samplerCubeShadow shadow_map;
 
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;

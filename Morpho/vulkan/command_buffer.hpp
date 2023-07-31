@@ -2,7 +2,6 @@
 #include <vulkan/vulkan.h>
 #include "limits.hpp"
 #include "resources.hpp"
-#include "pipeline_state.hpp"
 #include "resource_set.hpp"
 
 namespace Morpho::Vulkan {
@@ -52,10 +51,8 @@ public:
         VkRect2D render_area,
         std::initializer_list<VkClearValue> clear_values
     );
+    void bind_pipeline(Pipeline& pipeline);
 
-    // Will turn into set_shader
-    void add_shader(const Shader shader);
-    void clear_shaders();
     void set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range);
     void set_combined_image_sampler(
         uint32_t set,
@@ -64,35 +61,17 @@ public:
         Sampler sampler,
         VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );
-    void set_depth_state(VkBool32 test_enable, VkBool32 write_enable, VkCompareOp compare_op);
-    void set_front_face(VkFrontFace front_face);
-    void set_cull_mode(VkCullModeFlags cull_mode);
-    void set_topology(VkPrimitiveTopology topology);
-    void enable_depth_bias(float depth_bias_constant_factor, float depth_bias_slope_factor);
-    void disable_depth_bias();
-    void enable_blending(
-        VkBlendFactor src_color_blend_factor,
-        VkBlendFactor dst_color_blend_factor,
-        VkBlendOp color_blend_op,
-        VkBlendFactor src_alpha_blend_factor,
-        VkBlendFactor dst_alpha_blend_factor,
-        VkBlendOp alpha_blend_op
-    );
-    void disable_blending();
     void reset();
     void set_viewport(VkViewport viewport);
     void set_scissor(VkRect2D scissor);
-    void set_vertex_format(VertexFormat vertex_format);
 private:
     VkCommandBuffer command_buffer;
     RenderPass current_render_pass = RenderPass();
-    PipelineState pipeline_state;
     Pipeline pipeline;
     Context* context;
     ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT];
     DescriptorSet descriptor_sets[Limits::MAX_DESCRIPTOR_SET_COUNT];
 
-    void flush_pipeline();
     void flush_descriptor_sets();
     void flush();
 };
