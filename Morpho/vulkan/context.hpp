@@ -53,7 +53,7 @@ public:
     CommandBuffer acquire_command_buffer();
     void submit(CommandBuffer command_buffer);
     void flush(CommandBuffer command_buffer);
-    Shader acquire_shader(char* data, uint32_t size);
+    Shader acquire_shader(char* data, uint32_t size, Morpho::Vulkan::ShaderStage stage);
     RenderPassLayout acquire_render_pass_layout(const RenderPassLayoutInfo& info);
     RenderPass acquire_render_pass(const RenderPassInfo& info);
     Framebuffer acquire_framebuffer(const FramebufferInfo& info);
@@ -62,6 +62,7 @@ public:
     Buffer acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
     Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
     void release_buffer(Buffer buffer);
+    void update_buffer(const Buffer buffer, const void* data, uint64_t size);
     void map_memory(VmaAllocation allocation, void **map);
     void unmap_memory(VmaAllocation allocation);
     PipelineLayout acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT]);

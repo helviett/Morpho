@@ -5,33 +5,17 @@
 #include <string>
 #include "../common/hash_utils.hpp"
 #include "limits.hpp"
+#include <stdexcept>
 
 namespace Morpho::Vulkan {
 
-class Context;
-
-class Buffer {
-public:
-    Buffer();
-    Buffer(Context* context, VkBuffer buffer, VmaAllocation allocation, VmaAllocationInfo allocation_info);
-
-    void update(const void* data, VkDeviceSize size);
-    VkBuffer get_buffer() const;
-    VmaAllocation get_allocation() const;
-private:
-    Context* context;
+struct Buffer {
     VkBuffer buffer;
     VmaAllocation allocation;
     VmaAllocationInfo allocation_info;
 };
 
-class DescriptorSet {
-public:
-    DescriptorSet();
-    DescriptorSet(VkDescriptorSet descriptor_set);
-
-    VkDescriptorSet get_descriptor_set() const;
-private:
+struct DescriptorSet {
     VkDescriptorSet descriptor_set;
 };
 
@@ -68,15 +52,7 @@ private:
     RenderPassLayoutInfo layout_info{};
 };
 
-class RenderPassLayout {
-public:
-    RenderPassLayout();
-    RenderPassLayout(RenderPassLayoutInfo info);
-    RenderPassLayout(RenderPassLayoutInfo info, VkRenderPass render_pass);
-
-    VkRenderPass get_vulkan_handle() const;
-    const RenderPassLayoutInfo& get_info() const;
-private:
+struct RenderPassLayout {
     VkRenderPass render_pass;
     RenderPassLayoutInfo info;
 };
@@ -108,40 +84,19 @@ private:
 };
 
 
-class RenderPass {
-public:
-    RenderPass();
-    RenderPass(VkRenderPass render_pass, RenderPassLayout layout);
-
-    VkRenderPass get_vulkan_handle() const;
-    RenderPassLayout get_render_pass_layout() const;
-private:
+struct RenderPass {
     VkRenderPass render_pass;
     RenderPassLayout layout;
 };
 
-class Image {
-public:
-    Image();
-    Image(VkImage image, VmaAllocation allocation, VmaAllocationInfo allocation_info);
-    Image(VkImage image);
-
-    VkImage get_image() const;
-    VmaAllocation get_allocation() const;
-private:
+struct Image {
     VkImage image;
     VmaAllocation allocation;
     VmaAllocationInfo allocation_info;
 };
 
-class ImageView {
-public:
-    ImageView();
-    ImageView(VkImageView image_view, Image image = Image());
-
-    VkImageView get_image_view() const;
+struct ImageView {
     Image image;
-private:
     VkImageView image_view;
 };
 
@@ -163,22 +118,11 @@ private:
     FramebufferInfo framebuffer_info;
 };
 
-class Framebuffer {
-public:
-    Framebuffer(VkFramebuffer frambuffer);
-
-    VkFramebuffer get_vulkan_handle();
-private:
+struct Framebuffer {
     VkFramebuffer framebuffer;
 };
 
-class Sampler {
-public:
-    Sampler();
-    Sampler(VkSampler sampler);
-
-    VkSampler get_sampler() const;
-private:
+struct Sampler {
     VkSampler sampler;
 };
 
@@ -189,24 +133,23 @@ enum class ShaderStage {
     MAX_VALUE = FRAGMENT,
 };
 
-class Shader {
-public:
-    Shader();
-    Shader(const VkShaderModule module);
-    Shader(const VkShaderModule module, const ShaderStage stage);
-    Shader(const VkShaderModule module, const ShaderStage stage, const std::string& entry_point);
+inline VkShaderStageFlagBits shader_stage_to_vulkan(ShaderStage stage) {
+    switch (stage)
+    {
+    case ShaderStage::NONE:
+        throw std::runtime_error("Invalid shader stage.");
+    case ShaderStage::VERTEX:
+        return VK_SHADER_STAGE_VERTEX_BIT;
+    case ShaderStage::FRAGMENT:
+        return VK_SHADER_STAGE_FRAGMENT_BIT;
+    default:
+        throw std::runtime_error("Not implemented");
+    }
+}
 
-    void set_stage(const ShaderStage stage);
-    void set_entry_point(const std::string& entry_point);
-    ShaderStage get_stage() const;
-    const std::string& get_entry_point() const;
-    VkShaderModule get_shader_module() const;
-
-    static VkShaderStageFlagBits shader_stage_to_vulkan(ShaderStage stage);
-private:
+struct Shader {
     VkShaderModule shader_module;
     ShaderStage stage;
-    std::string entry_point;
 };
 
 struct PipelineLayoutInfo {
@@ -285,7 +228,7 @@ struct std::hash<Morpho::Vulkan::RenderPassInfo> {
         for (std::size_t i = 0; i < info.attachent_count; i++) {
             Morpho::hash_combine(h, info.attachments[i]);
         }
-        Morpho::hash_combine(h, info.layout.get_info());
+        Morpho::hash_combine(h, info.layout.info);
         return h;
     }
 };

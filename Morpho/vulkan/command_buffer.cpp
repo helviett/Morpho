@@ -34,18 +34,17 @@ void CommandBuffer::draw_indexed(
 }
 
 void CommandBuffer::bind_vertex_buffer(Buffer vertex_buffer, uint32_t binding, VkDeviceSize offset) {
-    auto buffer = vertex_buffer.get_buffer();
-    vkCmdBindVertexBuffers(command_buffer, binding, 1, &buffer, &offset);
+    auto vk_buffer = vertex_buffer.buffer;
+    vkCmdBindVertexBuffers(command_buffer, binding, 1, &vk_buffer, &offset);
 }
 
 void CommandBuffer::bind_index_buffer(Buffer index_buffer, VkIndexType index_type, VkDeviceSize offset) {
-    auto buffer = index_buffer.get_buffer();
-    vkCmdBindIndexBuffer(command_buffer, buffer, offset, index_type);
+    vkCmdBindIndexBuffer(command_buffer, index_buffer.buffer, offset, index_type);
 }
 
 void CommandBuffer::copy_buffer(Buffer source, Buffer destination, VkDeviceSize size) const {
-    auto dst = destination.get_buffer();
-    auto src = source.get_buffer();
+    auto dst = destination.buffer;
+    auto src = source.buffer;
     VkBufferCopy region;
     region.srcOffset = 0;
     region.dstOffset = 0;
@@ -74,7 +73,7 @@ void CommandBuffer::flush_descriptor_sets() {
     }
     for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
         if (
-            is_pipeline_layout_dirty || descriptor_sets[i].get_descriptor_set() == VK_NULL_HANDLE
+            is_pipeline_layout_dirty || descriptor_sets[i].descriptor_set == VK_NULL_HANDLE
             || sets[i].get_is_contents_dirty()
         ) {
             descriptor_sets[i] = context->acquire_descriptor_set(
@@ -86,7 +85,7 @@ void CommandBuffer::flush_descriptor_sets() {
             context->update_descriptor_set(descriptor_sets[i], sets[i]);
         }
         sets[i].clear_dirty_flags();
-        auto descriptor_set = descriptor_sets[i].get_descriptor_set();
+        auto descriptor_set = descriptor_sets[i].descriptor_set;
         vkCmdBindDescriptorSets(
             command_buffer,
             VK_PIPELINE_BIND_POINT_GRAPHICS,
@@ -118,8 +117,8 @@ void CommandBuffer::copy_buffer_to_image(Buffer source, Image destination, VkExt
 
     vkCmdCopyBufferToImage(
         command_buffer,
-        source.get_buffer(),
-        destination.get_image(),
+        source.buffer,
+        destination.image,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1,
         &region
@@ -143,7 +142,7 @@ void CommandBuffer::image_barrier(
     barrier.newLayout = new_layout;
     barrier.srcAccessMask = src_access;
     barrier.dstAccessMask = dst_access;
-    barrier.image = image.get_image();
+    barrier.image = image.image;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.subresourceRange.aspectMask = aspect;
@@ -174,7 +173,7 @@ void CommandBuffer::buffer_barrier(
 ) {
     VkBufferMemoryBarrier barrier{};
     barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    barrier.buffer = buffer.get_buffer();
+    barrier.buffer = buffer.buffer;
     barrier.srcAccessMask = src_access;
     barrier.dstAccessMask = dst_access;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -219,8 +218,8 @@ void CommandBuffer::begin_render_pass(
     begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_info.clearValueCount = (uint32_t)clear_values.size();
     begin_info.pClearValues = clear_values.begin();
-    begin_info.renderPass = render_pass.get_vulkan_handle();
-    begin_info.framebuffer = framebuffer.get_vulkan_handle();
+    begin_info.renderPass = render_pass.render_pass;
+    begin_info.framebuffer = framebuffer.framebuffer;
     begin_info.renderArea = render_area;
     current_render_pass = render_pass;
     vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);

@@ -274,7 +274,7 @@ void Context::create_swapchain() {
     vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_vk_images.data());
     swapchain_image_views.resize(swapchain_image_count);
     for (uint32_t i = 0; i < swapchain_image_count; i++) {
-        swapchain_images[i] = Image(swapchain_vk_images[i]);
+        swapchain_images[i].image = swapchain_vk_images[i];
         VkImageViewCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         info.format = swapchain_format;
@@ -291,7 +291,7 @@ void Context::create_swapchain() {
         info.subresourceRange.layerCount = 1;
         VkImageView image_view;
         vkCreateImageView(device, &info, nullptr, &image_view);
-        swapchain_image_views[i] = ImageView(image_view);
+        swapchain_image_views[i].image_view = image_view;
     }
 }
 
@@ -392,13 +392,13 @@ Context::FrameContext& Context::get_current_frame_context() {
 
 void Context::release_buffer_on_frame_begin(Buffer buffer) {
     get_current_frame_context().destructors.push_back([=] {
-        vmaDestroyBuffer(allocator, buffer.get_buffer(), buffer.get_allocation());
+        vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
     });
 }
 
 void Context::release_image_on_frame_begin(Image image) {
     get_current_frame_context().destructors.push_back([=] {
-        vmaDestroyImage(allocator, image.get_image(), image.get_allocation());
+        vmaDestroyImage(allocator, image.image, image.allocation);
     });
 }
 
@@ -425,7 +425,7 @@ Framebuffer Context::acquire_framebuffer(const FramebufferInfo& info) {
     // For now assume image_view is swapchain image view.
     VkImageView image_views[FramebufferInfo::max_attachment_count];
     for (uint32_t i = 0; i < info.attachment_count; i++) {
-        image_views[i] = info.attachments[i].get_image_view();
+        image_views[i] = info.attachments[i].image_view;
     }
 
     VkFramebufferCreateInfo create_info{};
@@ -435,32 +435,37 @@ Framebuffer Context::acquire_framebuffer(const FramebufferInfo& info) {
     create_info.width = info.extent.width;
     create_info.height = info.extent.height;
     create_info.layers = 1;
-    create_info.renderPass = info.layout.get_vulkan_handle();
+    create_info.renderPass = info.layout.render_pass;
 
-    VkFramebuffer framebuffer;
-    vkCreateFramebuffer(device, &create_info, nullptr, &framebuffer);
+    VkFramebuffer vk_framebuffer;
+    vkCreateFramebuffer(device, &create_info, nullptr, &vk_framebuffer);
 
     get_current_frame_context().destructors.push_back([=] {
-        vkDestroyFramebuffer(device, framebuffer, nullptr);
+        vkDestroyFramebuffer(device, vk_framebuffer, nullptr);
     });
 
-    return Framebuffer(framebuffer);
+    Framebuffer framebuffer{};
+    framebuffer.framebuffer = vk_framebuffer;
+    return framebuffer;
 }
 
 ImageView Context::get_swapchain_image_view() const {
     return swapchain_image_views[swapchain_image_index];
 }
 
-Shader Context::acquire_shader(char* data, uint32_t size) {
+Shader Context::acquire_shader(char* data, uint32_t size, Morpho::Vulkan::ShaderStage stage) {
     VkShaderModuleCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
     info.codeSize = size;
     info.pCode = reinterpret_cast<const uint32_t*>(data);
 
     VkShaderModule shader_module;
-    VK_CHECK(vkCreateShaderModule(device, &info, nullptr, &shader_module), "Unable to create shader module.")
+    VK_CHECK(vkCreateShaderModule(device, &info, nullptr, &shader_module), "Unable to create shader module.");
 
-    return Shader(shader_module);
+    Shader shader{};
+    shader.shader_module = shader_module;
+    shader.stage = stage;
+    return shader;
 }
 
 VkExtent2D Context::get_swapchain_extent() const {
@@ -475,8 +480,8 @@ Pipeline Context::create_pipeline(PipelineInfo &pipeline_info) {
         stages[i].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
         stages[i].pNext = nullptr;
         stages[i].flags = 0;
-        stages[i].stage = Shader::shader_stage_to_vulkan(shader.get_stage());
-        stages[i].module = shader.get_shader_module();
+        stages[i].stage = shader_stage_to_vulkan(shader.stage);
+        stages[i].module = shader.shader_module;
         stages[i].pName = "main";
         stages[i].pSpecializationInfo = nullptr;
     }
@@ -571,7 +576,7 @@ Pipeline Context::create_pipeline(PipelineInfo &pipeline_info) {
     vk_pipeline_info.pColorBlendState = &color_blend_state;
     vk_pipeline_info.pDynamicState = &dynamic_state;
     vk_pipeline_info.layout = pipeline_info.pipeline_layout->pipeline_layout;
-    vk_pipeline_info.renderPass = pipeline_info.render_pass_layout->get_vulkan_handle();
+    vk_pipeline_info.renderPass = pipeline_info.render_pass_layout->render_pass;
     vk_pipeline_info.subpass = 0;
     vk_pipeline_info.basePipelineHandle = VK_NULL_HANDLE;
     vk_pipeline_info.basePipelineIndex = 0;
@@ -594,13 +599,17 @@ Buffer Context::acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usag
     VmaAllocationCreateInfo allocation_create_info{};
     allocation_create_info.usage = memory_usage;
 
-    VkBuffer buffer;
+    VkBuffer vk_buffer;
     VmaAllocation allocation;
     VmaAllocationInfo allocation_info;
 
-    vmaCreateBuffer(allocator, &info, &allocation_create_info, &buffer, &allocation, &allocation_info);
+    vmaCreateBuffer(allocator, &info, &allocation_create_info, &vk_buffer, &allocation, &allocation_info);
 
-    return Buffer(this, buffer, allocation, allocation_info);
+    Buffer buffer{};
+    buffer.buffer = vk_buffer;
+    buffer.allocation = allocation;
+    buffer.allocation_info = allocation_info;
+    return buffer;
 }
 
 void Context::map_memory(VmaAllocation allocation, void **map) {
@@ -620,6 +629,14 @@ Buffer Context::acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buf
 
 void Context::release_buffer(Buffer buffer) {
     release_buffer_on_frame_begin(buffer);
+}
+
+void Context::update_buffer(const Buffer buffer, const void* data, uint64_t size)
+{
+    void* mapped;
+    map_memory(buffer.allocation, &mapped);
+    memcpy(mapped, data, size);
+    unmap_memory(buffer.allocation);
 }
 
 void Context::flush(CommandBuffer command_buffer) {
@@ -668,7 +685,7 @@ DescriptorSet Context::acquire_descriptor_set(VkDescriptorSetLayout descriptor_s
 }
 
 void Context::update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set) {
-    auto descriptor_set_handle = descriptor_set.get_descriptor_set();
+    auto descriptor_set_handle = descriptor_set.descriptor_set;
     VkWriteDescriptorSet writes[Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT];
     uint32_t current_write = 0;
     for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT; i++) {
@@ -825,12 +842,16 @@ Image Context::acquire_image(
     VmaAllocationCreateInfo allocation_create_info{};
     allocation_create_info.usage = memory_usage;
 
-    VkImage image;
+    VkImage vk_image;
     VmaAllocation allocation;
     VmaAllocationInfo allocation_info;
-    vmaCreateImage(allocator, &image_info, &allocation_create_info, &image, &allocation, &allocation_info);
+    vmaCreateImage(allocator, &image_info, &allocation_create_info, &vk_image, &allocation, &allocation_info);
 
-    return Image(image, allocation, allocation_info);
+    Image image{};
+    image.image = vk_image;
+    image.allocation = allocation;
+    image.allocation_info = allocation_info;
+    return image;
 }
 
 Image Context::acquire_temporary_image(
@@ -863,12 +884,15 @@ ImageView Context::create_image_view(
     image_view_info.subresourceRange.layerCount = layer_count;
     image_view_info.subresourceRange.baseMipLevel = 0;
     image_view_info.subresourceRange.levelCount = 1;
-    image_view_info.image = image.get_image();
+    image_view_info.image = image.image;
 
-    VkImageView image_view;
-    vkCreateImageView(device, &image_view_info, nullptr, &image_view);
+    VkImageView vk_image_view;
+    vkCreateImageView(device, &image_view_info, nullptr, &vk_image_view);
 
-    return ImageView(image_view, image);
+    ImageView image_view{};
+    image_view.image_view = vk_image_view;
+    image_view.image = image;
+    return image_view;
 }
 
 
@@ -892,7 +916,7 @@ void Context::release_image(Image image) {
 }
 
 void Context::destroy_image_view(ImageView image_view) {
-    vkDestroyImageView(device, image_view.get_image_view(), nullptr);
+    vkDestroyImageView(device, image_view.image_view, nullptr);
 }
 
 Sampler Context::acquire_sampler(
@@ -929,10 +953,12 @@ Sampler Context::acquire_sampler(
     sampler_info.minLod = 0.0f;
     sampler_info.unnormalizedCoordinates = VK_FALSE;
 
-    VkSampler sampler;
-    vkCreateSampler(device, &sampler_info, nullptr, &sampler);
+    VkSampler vk_sampler;
+    vkCreateSampler(device, &sampler_info, nullptr, &vk_sampler);
 
-    return Sampler(sampler);
+    Sampler sampler{};
+    sampler.sampler = vk_sampler;
+    return sampler;
 }
 
 VkFormat Context::get_swapchain_format() const {
@@ -940,7 +966,7 @@ VkFormat Context::get_swapchain_format() const {
 }
 
 VkRenderPass Context::create_render_pass(const RenderPassInfo& info) {
-    assert(info.attachent_count == info.layout.get_info().attachent_count);
+    assert(info.attachent_count == info.layout.info.attachent_count);
     VkRenderPassCreateInfo create_info{};
     create_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
     VkAttachmentDescription attachment_descriptions[RenderPassInfo::max_attachment_count];
@@ -950,7 +976,7 @@ VkRenderPass Context::create_render_pass(const RenderPassInfo& info) {
     uint32_t preserve_index = 0;
     create_info.attachmentCount = info.attachent_count;
     create_info.pAttachments = attachment_descriptions;
-    const auto& layout_info = info.layout.get_info();
+    const auto& layout_info = info.layout.info;
     for (uint32_t i = 0; i < info.attachent_count; i++) {
         auto& desc = attachment_descriptions[i];
         const auto& attachment_info = info.attachments[i];
@@ -1038,23 +1064,29 @@ RenderPassLayout Context::acquire_render_pass_layout(const RenderPassLayoutInfo&
         attachment.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         attachment.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     }
-    render_pass_info.layout = RenderPassLayout(info);
+    render_pass_info.layout.info = info;
     size_t hash = 0;
     VkRenderPass render_pass;
     hash_combine(hash, info);
     if (!render_pass_cache.try_get(hash, render_pass)) {
         render_pass = create_render_pass(render_pass_info);
     }
-    return RenderPassLayout(info, render_pass);
+    RenderPassLayout render_pass_layout{};
+    render_pass_layout.info = info;
+    render_pass_layout.render_pass = render_pass;
+    return render_pass_layout;
 }
 
 RenderPass Context::acquire_render_pass(const RenderPassInfo& info) {
     size_t hash = 0;
-    VkRenderPass render_pass;
-    if (!render_pass_cache.try_get(hash, render_pass)) {
-        render_pass = create_render_pass(info);
+    VkRenderPass vk_render_pass;
+    if (!render_pass_cache.try_get(hash, vk_render_pass)) {
+        vk_render_pass = create_render_pass(info);
     }
-    return RenderPass(render_pass, info.layout);
+    RenderPass render_pass{};
+    render_pass.layout = info.layout;
+    render_pass.render_pass = vk_render_pass;
+    return render_pass;
 }
 
 }

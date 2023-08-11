@@ -8,7 +8,7 @@ void ResourceSet::set_uniform_buffer(uint32_t binding, Buffer buffer, VkDeviceSi
     bool is_resource_type_differ = bindings[binding].get_resource_type() != ResourceType::UniformBuffer;
     is_layout_dirty |= is_resource_type_differ;
     auto binding_dirty = is_resource_type_differ
-        || buffer.get_buffer() != bindings[binding].get_buffer_info()->buffer
+        || buffer.buffer != bindings[binding].get_buffer_info()->buffer
         || offset != bindings[binding].get_buffer_info()->offset
         || range != bindings[binding].get_buffer_info()->range;
     contents_dirty |= (uint32_t)binding_dirty << binding;
@@ -24,8 +24,8 @@ void ResourceSet::set_combined_image_sampler(
     bool is_resource_type_differ = bindings[binding].get_resource_type() != ResourceType::CombinedImageSampler;
     is_layout_dirty |= is_resource_type_differ;
     auto binding_dirty = is_resource_type_differ
-        || image_view.get_image_view() != bindings[binding].get_image_info()->imageView
-        || sampler.get_sampler() != bindings[binding].get_image_info()->sampler
+        || image_view.image_view != bindings[binding].get_image_info()->imageView
+        || sampler.sampler != bindings[binding].get_image_info()->sampler
         || image_layout != bindings[binding].get_image_info()->imageLayout;
     bindings[binding] = ResourceBinding::from_combined_image_sampler(image_view, image_layout, sampler);
 }

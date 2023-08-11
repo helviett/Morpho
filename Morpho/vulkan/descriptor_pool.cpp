@@ -20,7 +20,7 @@ bool DescriptorPool::try_allocate_set(const VkDescriptorSetLayout& layout, Descr
     info.pSetLayouts = &set_layout;
     VkDescriptorSet descriptor_set;
     vkAllocateDescriptorSets(device, &info, &descriptor_set);
-    set = DescriptorSet(descriptor_set);
+    set.descriptor_set = descriptor_set;
     allocated++;
     return true;
 }
