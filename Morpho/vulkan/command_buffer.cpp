@@ -59,11 +59,11 @@ void CommandBuffer::set_uniform_buffer(uint32_t set, uint32_t binding, Buffer bu
 void CommandBuffer::set_combined_image_sampler(
     uint32_t set,
     uint32_t binding,
-    ImageView image_view,
+    Texture texture,
     Sampler sampler,
     VkImageLayout image_layout
 ) {
-    sets[set].set_combined_image_sampler(binding, image_view, sampler, image_layout);
+    sets[set].set_combined_image_sampler(binding, texture, sampler, image_layout);
 }
 
 void CommandBuffer::flush_descriptor_sets() {
@@ -103,7 +103,7 @@ void CommandBuffer::flush() {
     flush_descriptor_sets();
 }
 
-void CommandBuffer::copy_buffer_to_image(Buffer source, Image destination, VkExtent3D extent) const {
+void CommandBuffer::copy_buffer_to_image(Buffer source, Texture destination, VkExtent3D extent) const {
     VkBufferImageCopy region{};
     region.bufferOffset = 0;
     region.bufferRowLength = 0;
@@ -126,7 +126,7 @@ void CommandBuffer::copy_buffer_to_image(Buffer source, Image destination, VkExt
 }
 
 void CommandBuffer::image_barrier(
-    const Image& image,
+    const Texture& texture,
     VkImageAspectFlags aspect,
     VkImageLayout old_layout,
     VkImageLayout new_layout,
@@ -142,7 +142,7 @@ void CommandBuffer::image_barrier(
     barrier.newLayout = new_layout;
     barrier.srcAccessMask = src_access;
     barrier.dstAccessMask = dst_access;
-    barrier.image = image.image;
+    barrier.image = texture.image;
     barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
     barrier.subresourceRange.aspectMask = aspect;

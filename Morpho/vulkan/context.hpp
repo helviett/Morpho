@@ -37,6 +37,14 @@ void DestroyDebugUtilsMessengerEXT(
     const VkAllocationCallbacks* pAllocator
 );
 
+inline bool is_depth_format(VkFormat format) {
+    return format == VK_FORMAT_D16_UNORM
+        || format == VK_FORMAT_D16_UNORM_S8_UINT
+        || format == VK_FORMAT_D24_UNORM_S8_UINT
+        || format == VK_FORMAT_D32_SFLOAT
+        || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+}
+
 class Context {
 public:
     Context() = default;
@@ -70,7 +78,7 @@ public:
     void destroy_pipline_layout(const PipelineLayout& pipeline_layout);
     DescriptorSet acquire_descriptor_set(VkDescriptorSetLayout descriptor_set_layout);
     void update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set);
-    Image acquire_image(
+    Texture create_texture(
         VkExtent3D extent,
         VkFormat format,
         VkImageUsageFlags image_usage,
@@ -78,7 +86,7 @@ public:
         uint32_t array_layers = 1,
         VkImageCreateFlags flags = 0
     );
-    Image acquire_temporary_image(
+    Texture create_temporary_texture(
         VkExtent3D extent,
         VkFormat format,
         VkImageUsageFlags image_usage,
@@ -86,24 +94,17 @@ public:
         uint32_t array_layers = 1,
         VkImageCreateFlags flags = 0
     );
-    void release_image(Image image);
-    ImageView create_image_view(
-        VkFormat format,
-        Image& image,
-        VkImageAspectFlags aspect,
-        VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D,
-        uint32_t base_array_layer = 0,
-        uint32_t layer_count = 1
+    Texture create_texture_view(
+        const Texture& texture,
+        uint32_t base_array_layer,
+        uint32_t layer_count
     );
-    ImageView create_temporary_image_view(
-        VkFormat format,
-        Image& image,
-        VkImageAspectFlags aspect,
-        VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D,
-        uint32_t base_array_layer = 0,
-        uint32_t layer_count = 1
+    Texture create_temporary_texture_view(
+        const Texture& texture,
+        uint32_t base_array_layer,
+        uint32_t layer_count
     );
-    void destroy_image_view(ImageView image_view);
+    void destroy_texture(Texture texture);
     Sampler acquire_sampler(
         VkSamplerAddressMode address_mode,
         VkFilter filter,
@@ -121,7 +122,7 @@ public:
     );
 
     // public WSI stuff
-    ImageView get_swapchain_image_view() const;
+    Texture get_swapchain_texture() const;
     VkExtent2D get_swapchain_extent() const;
     VkFormat get_swapchain_format() const;
     // end of WSI stuff
@@ -182,14 +183,13 @@ private:
     // The safest way to release resources is on the start of
     // the frame context they were last used in.
     void release_buffer_on_frame_begin(Buffer buffer);
-    void release_image_on_frame_begin(Image image);
+    void release_texture_on_frame_begin(Texture image);
 
     // WSI stuff that will soon migrate somewhere
     GLFWwindow* window;
     VkSurfaceKHR surface;
     VkSwapchainKHR swapchain;
-    std::vector<Image> swapchain_images;
-    std::vector<ImageView> swapchain_image_views;
+    std::vector<Texture> swapchain_textures;
     VkFormat swapchain_format;
     VkExtent2D swapchain_extent;
     void create_surface();

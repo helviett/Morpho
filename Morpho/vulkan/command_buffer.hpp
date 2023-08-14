@@ -24,9 +24,9 @@ public:
         uint32_t first_instance
     );
     void copy_buffer(Buffer source, Buffer destination, VkDeviceSize size) const;
-    void copy_buffer_to_image(Buffer source, Image destination, VkExtent3D extent) const;
+    void copy_buffer_to_image(Buffer source, Texture destination, VkExtent3D extent) const;
     void image_barrier(
-        const Image& image,
+        const Texture& texture,
         VkImageAspectFlags aspect,
         VkImageLayout old_layout,
         VkImageLayout new_layout,
@@ -57,7 +57,7 @@ public:
     void set_combined_image_sampler(
         uint32_t set,
         uint32_t binding,
-        ImageView image_view,
+        Texture texture,
         Sampler sampler,
         VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
     );

@@ -13,7 +13,7 @@ public:
     void set_uniform_buffer(uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range);
     void set_combined_image_sampler(
         uint32_t binding,
-        ImageView image_view,
+        Texture texture,
         Sampler sampler,
         VkImageLayout image_layout
     );

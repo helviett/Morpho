@@ -118,17 +118,13 @@ private:
     Morpho::Vulkan::Shader no_light_fragment_shader;
     Morpho::Vulkan::Shader full_screen_triangle_shader;
     Morpho::Vulkan::Shader shadow_map_spot_light_fragment_shader;
-    Morpho::Vulkan::Image image;
-    Morpho::Vulkan::ImageView image_view;
     Morpho::Vulkan::Sampler default_sampler;
     Morpho::Vulkan::Sampler shadow_sampler;
-    Morpho::Vulkan::Image white_image;
-    Morpho::Vulkan::ImageView white_image_view;
+    Morpho::Vulkan::Texture white_texture;
     std::vector<Morpho::Vulkan::Buffer> buffers;
-    std::vector<Morpho::Vulkan::Image> texture_images;
-    std::vector<Morpho::Vulkan::ImageView> texture_image_views;
+    std::vector<Morpho::Vulkan::Texture> textures;
     std::vector<Morpho::Vulkan::Sampler> samplers;
-    std::vector<Morpho::Vulkan::ImageView> shadow_maps;
+    std::vector<Morpho::Vulkan::Texture> shadow_maps;
     uint32_t frames = 0;
     // DirectionalLight directional_light = {
     //     glm::vec3(0.0f, -1.0f, 0.0f),
@@ -179,24 +175,24 @@ private:
         Morpho::Vulkan::CommandBuffer& cmd,
         glm::mat4 parent_to_world
     );
-    void draw_depth_image(Morpho::Vulkan::CommandBuffer &cmd, Morpho::Vulkan::ImageView depth_map);
+    void draw_depth_image(Morpho::Vulkan::CommandBuffer &cmd, Morpho::Vulkan::Texture depth_map);
     void draw_mesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh, Morpho::Vulkan::CommandBuffer& cmd);
     void draw_primitive(
         const tinygltf::Model& model,
         const tinygltf::Primitive& primitive,
         Morpho::Vulkan::CommandBuffer& cmd
     );
-    Morpho::Vulkan::ImageView render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const SpotLight& spot_light);
-    Morpho::Vulkan::ImageView render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const PointLight& point_light);
+    Morpho::Vulkan::Texture render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const SpotLight& spot_light);
+    Morpho::Vulkan::Texture render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const PointLight& point_light);
     void begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd);
     void render_color_pass(
         Morpho::Vulkan::CommandBuffer& cmd,
-        Morpho::Vulkan::ImageView shadow_map,
+        Morpho::Vulkan::Texture shadow_map,
         const SpotLight& spot_light
     );
     void render_color_pass(
         Morpho::Vulkan::CommandBuffer& cmd,
-        Morpho::Vulkan::ImageView shadow_map,
+        Morpho::Vulkan::Texture shadow_map,
         const PointLight& point_light
     );
     void setup_spot_light_uniforms(Morpho::Vulkan::CommandBuffer& cmd, const SpotLight& spot_light);

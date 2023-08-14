@@ -269,12 +269,13 @@ void Context::create_swapchain() {
 
     uint32_t swapchain_image_count;
     vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nullptr);
-    swapchain_images.resize(swapchain_image_count);
+    swapchain_textures.resize(swapchain_image_count);
     std::vector<VkImage> swapchain_vk_images(swapchain_image_count);
     vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_vk_images.data());
-    swapchain_image_views.resize(swapchain_image_count);
+    swapchain_textures.resize(swapchain_image_count);
     for (uint32_t i = 0; i < swapchain_image_count; i++) {
-        swapchain_images[i].image = swapchain_vk_images[i];
+        swapchain_textures[i].image = swapchain_vk_images[i];
+        swapchain_textures[i].format = swapchain_format;
         VkImageViewCreateInfo info{};
         info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
         info.format = swapchain_format;
@@ -291,7 +292,7 @@ void Context::create_swapchain() {
         info.subresourceRange.layerCount = 1;
         VkImageView image_view;
         vkCreateImageView(device, &info, nullptr, &image_view);
-        swapchain_image_views[i].image_view = image_view;
+        swapchain_textures[i].image_view = image_view;
     }
 }
 
@@ -396,9 +397,13 @@ void Context::release_buffer_on_frame_begin(Buffer buffer) {
     });
 }
 
-void Context::release_image_on_frame_begin(Image image) {
+void Context::release_texture_on_frame_begin(Texture texture) {
     get_current_frame_context().destructors.push_back([=] {
-        vmaDestroyImage(allocator, image.image, image.allocation);
+        if (texture.owns_image)
+        {
+            vmaDestroyImage(allocator, texture.image, texture.allocation);
+        }
+        vkDestroyImageView(device, texture.image_view, nullptr);
     });
 }
 
@@ -449,8 +454,8 @@ Framebuffer Context::acquire_framebuffer(const FramebufferInfo& info) {
     return framebuffer;
 }
 
-ImageView Context::get_swapchain_image_view() const {
-    return swapchain_image_views[swapchain_image_index];
+Texture Context::get_swapchain_texture() const {
+    return swapchain_textures[swapchain_image_index];
 }
 
 Shader Context::acquire_shader(char* data, uint32_t size, Morpho::Vulkan::ShaderStage stage) {
@@ -817,7 +822,7 @@ void Context::destroy_pipline_layout(const PipelineLayout &pipeline_layout)
     }
 }
 
-Image Context::acquire_image(
+Texture Context::create_texture(
     VkExtent3D extent,
     VkFormat format,
     VkImageUsageFlags image_usage,
@@ -847,14 +852,39 @@ Image Context::acquire_image(
     VmaAllocationInfo allocation_info;
     vmaCreateImage(allocator, &image_info, &allocation_create_info, &vk_image, &allocation, &allocation_info);
 
-    Image image{};
-    image.image = vk_image;
-    image.allocation = allocation;
-    image.allocation_info = allocation_info;
-    return image;
+    // Support 2D and Cube textures for now.
+    VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
+    if (array_layers == 6 && (flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) != 0) {
+        view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+    }
+
+    VkImageAspectFlags aspect = is_depth_format(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
+    VkImageViewCreateInfo image_view_info{};
+    image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    image_view_info.format = format;
+    image_view_info.viewType = view_type;
+    image_view_info.subresourceRange.aspectMask = aspect;
+    image_view_info.subresourceRange.baseArrayLayer = 0;
+    image_view_info.subresourceRange.layerCount = array_layers;
+    image_view_info.subresourceRange.baseMipLevel = 0;
+    image_view_info.subresourceRange.levelCount = 1;
+    image_view_info.image = vk_image;
+
+    VkImageView vk_image_view;
+    vkCreateImageView(device, &image_view_info, nullptr, &vk_image_view);
+
+    Texture texture{};
+    texture.image = vk_image;
+    texture.image_view = vk_image_view;
+    texture.allocation = allocation;
+    texture.allocation_info = allocation_info;
+    texture.format = format;
+    texture.owns_image = true;
+    return texture;
 }
 
-Image Context::acquire_temporary_image(
+Texture Context::create_temporary_texture(
     VkExtent3D extent,
     VkFormat format,
     VkImageUsageFlags image_usage,
@@ -862,61 +892,47 @@ Image Context::acquire_temporary_image(
     uint32_t array_layers,
     VkImageCreateFlags flags
 ) {
-    auto image = acquire_image(extent, format, image_usage, memory_usage, array_layers, flags);
-    release_image_on_frame_begin(image);
-    return image;
+    auto texture = create_texture(extent, format, image_usage, memory_usage, array_layers, flags);
+    release_texture_on_frame_begin(texture);
+    return texture;
 }
 
-ImageView Context::create_image_view(
-    VkFormat format,
-    Image& image,
-    VkImageAspectFlags aspect,
-    VkImageViewType view_type,
-    uint32_t base_array_layer,
-    uint32_t layer_count
-) {
+Texture Context::create_texture_view(const Texture& texture, uint32_t base_array_layer, uint32_t layer_count)
+{
+    VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
+
+    VkImageAspectFlags aspect = is_depth_format(texture.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+
     VkImageViewCreateInfo image_view_info{};
     image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    image_view_info.format = format;
+    image_view_info.format = texture.format;
     image_view_info.viewType = view_type;
     image_view_info.subresourceRange.aspectMask = aspect;
     image_view_info.subresourceRange.baseArrayLayer = base_array_layer;
     image_view_info.subresourceRange.layerCount = layer_count;
     image_view_info.subresourceRange.baseMipLevel = 0;
     image_view_info.subresourceRange.levelCount = 1;
-    image_view_info.image = image.image;
+    image_view_info.image = texture.image;
 
-    VkImageView vk_image_view;
+    VkImageView vk_image_view{};
     vkCreateImageView(device, &image_view_info, nullptr, &vk_image_view);
 
-    ImageView image_view{};
-    image_view.image_view = vk_image_view;
-    image_view.image = image;
-    return image_view;
+    Texture view{};
+    view.format = texture.format;
+    view.image = texture.image;
+    view.image_view = vk_image_view;
+    return view;
 }
 
-
-ImageView Context::create_temporary_image_view(
-    VkFormat format,
-    Image& image,
-    VkImageAspectFlags aspect,
-    VkImageViewType view_type,
-    uint32_t base_array_layer,
-    uint32_t layer_count
-) {
-    auto image_view = create_image_view(format, image, aspect, view_type, base_array_layer, layer_count);
-    get_current_frame_context().destructors.push_back([=]{
-        destroy_image_view(image_view);
-    });
-    return image_view;
+Texture Context::create_temporary_texture_view(const Texture& texture, uint32_t base_array_layer, uint32_t layer_count)
+{
+    auto view = create_texture_view(texture, base_array_layer, layer_count);
+    release_texture_on_frame_begin(view);
+    return view;
 }
 
-void Context::release_image(Image image) {
-    release_image_on_frame_begin(image);
-}
-
-void Context::destroy_image_view(ImageView image_view) {
-    vkDestroyImageView(device, image_view.image_view, nullptr);
+void Context::destroy_texture(Texture texture) {
+    release_texture_on_frame_begin(texture);
 }
 
 Sampler Context::acquire_sampler(

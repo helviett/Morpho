@@ -276,12 +276,10 @@ void Application::render_frame() {
             auto key = (Key)((int)Key::NUMBER0 + i);
             if (input.is_key_pressed(key)) {
                 auto sm = shadow_maps[spot_lights.size()];
-                auto tiv = context->create_temporary_image_view(
-                    VK_FORMAT_D16_UNORM,
-                    sm.image,
-                    VK_IMAGE_ASPECT_DEPTH_BIT,
-                    VK_IMAGE_VIEW_TYPE_2D,
-                    i
+                auto tiv = context->create_temporary_texture_view(
+                    sm,
+                    i,
+                    1
                 );
                 draw_depth_image(cmd, tiv);
             }
@@ -299,7 +297,7 @@ void Application::render_frame() {
     context->end_frame();
 }
 
-Morpho::Vulkan::ImageView Application::render_depth_pass(
+Morpho::Vulkan::Texture Application::render_depth_pass(
     Morpho::Vulkan::CommandBuffer& cmd,
     const SpotLight& spot_light
 ) {
@@ -319,21 +317,16 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
     cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
     cmd.set_uniform_buffer(0, 2, vp_buffer, 0, sizeof(ViewProjection));
     cmd.bind_pipeline(depth_pass_pipeline_ccw);
-    auto depth_image = context->acquire_temporary_image(
+    auto depth_image = context->create_temporary_texture(
         { extent.width, extent.height, 1 },
         VK_FORMAT_D16_UNORM,
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY
     );
-    auto depth_image_view = context->create_temporary_image_view(
-        VK_FORMAT_D16_UNORM,
-        depth_image,
-        VK_IMAGE_ASPECT_DEPTH_BIT
-    );
     auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
         .layout(depth_pass_layout)
         .extent(extent)
-        .attachment(depth_image_view)
+        .attachment(depth_image)
         .info()
     );
     cmd.begin_render_pass(
@@ -357,11 +350,11 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         VK_ACCESS_SHADER_READ_BIT
     );
-    return depth_image_view;
+    return depth_image;
 }
 
 
-Morpho::Vulkan::ImageView Application::render_depth_pass(
+Morpho::Vulkan::Texture Application::render_depth_pass(
     Morpho::Vulkan::CommandBuffer& cmd,
     const PointLight& point_light
 ) {
@@ -371,7 +364,7 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
     extent.width = extent.height = std::max(extent.width, extent.height);
     cmd.set_viewport({ 0, 0, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
     cmd.set_scissor({ {0, 0}, extent });
-    auto depth_image = context->acquire_temporary_image(
+    auto depth_image = context->create_temporary_texture(
         { extent.width, extent.height, 1 },
         VK_FORMAT_D16_UNORM,
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -410,12 +403,10 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
         context->update_buffer(vp_buffer, &vp, sizeof(ViewProjection));
         cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
         cmd.set_uniform_buffer(0, 2, vp_buffer, 0, sizeof(ViewProjection));
-        auto depth_image_view = context->create_temporary_image_view(
-            VK_FORMAT_D16_UNORM,
+        auto depth_image_view = context->create_temporary_texture_view(
             depth_image,
-            VK_IMAGE_ASPECT_DEPTH_BIT,
-            VK_IMAGE_VIEW_TYPE_2D,
-            i
+            i,
+            1
         );
         auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
             .layout(depth_pass_layout)
@@ -446,14 +437,7 @@ Morpho::Vulkan::ImageView Application::render_depth_pass(
         VK_ACCESS_SHADER_READ_BIT,
         6
     );
-    return context->create_temporary_image_view(
-        VK_FORMAT_D16_UNORM,
-        depth_image,
-        VK_IMAGE_ASPECT_DEPTH_BIT,
-        VK_IMAGE_VIEW_TYPE_CUBE,
-        0,
-        6
-    );
+    return depth_image;
 }
 
 void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
@@ -461,22 +445,17 @@ void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
     auto extent = context->get_swapchain_extent();
     cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
     cmd.set_scissor({ {0, 0}, extent });
-    auto depth_image = context->acquire_temporary_image(
+    auto depth_image = context->create_temporary_texture(
         { extent.width, extent.height, 1 },
         VK_FORMAT_D16_UNORM,
         VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY
     );
-    auto depth_image_view = context->create_temporary_image_view(
-        VK_FORMAT_D16_UNORM,
-        depth_image,
-        VK_IMAGE_ASPECT_DEPTH_BIT
-    );
     auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
         .layout(color_pass_layout)
         .extent(extent)
-        .attachment(depth_image_view)
-        .attachment(context->get_swapchain_image_view())
+        .attachment(depth_image)
+        .attachment(context->get_swapchain_texture())
         .info()
     );
     cmd.begin_render_pass(
@@ -492,7 +471,7 @@ void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
 
 void Application::render_color_pass(
     Morpho::Vulkan::CommandBuffer& cmd,
-    Morpho::Vulkan::ImageView shadow_map,
+    Morpho::Vulkan::Texture shadow_map,
     const PointLight& point_light
 ) {
     setup_point_light_uniforms(cmd, point_light);
@@ -524,7 +503,7 @@ void Application::render_color_pass(
 
 void Application::render_color_pass(
     Morpho::Vulkan::CommandBuffer& cmd,
-    Morpho::Vulkan::ImageView shadow_map,
+    Morpho::Vulkan::Texture shadow_map,
     const SpotLight& spot_light
 ) {
     setup_spot_light_uniforms(cmd, spot_light);
@@ -554,7 +533,7 @@ void Application::render_color_pass(
     draw_model(model, cmd);
 }
 
-void Application::draw_depth_image(Morpho::Vulkan::CommandBuffer& cmd, Morpho::Vulkan::ImageView depth_map) {
+void Application::draw_depth_image(Morpho::Vulkan::CommandBuffer& cmd, Morpho::Vulkan::Texture depth_map) {
     cmd.reset();
     cmd.bind_pipeline(shadow_map_visualization_pipeline);
     cmd.set_combined_image_sampler(0, 0, depth_map, default_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
@@ -586,7 +565,7 @@ std::vector<char> Application::read_file(const std::string& filename) {
 void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd) {
     uint32_t white_pixel = std::numeric_limits<uint32_t>::max();
     std::vector<uint32_t> white_pixels(1 * 1, white_pixel);
-    white_image = context->acquire_image(
+    white_texture = context->create_texture(
         { 1, 1, 1 },
         VK_FORMAT_R8G8B8A8_UNORM,
         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -599,7 +578,7 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
     );
     context->update_buffer(white_staging_buffer, white_pixels.data(), 1 * 1 * 4);
     cmd.image_barrier(
-        white_image,
+        white_texture,
         VK_IMAGE_ASPECT_COLOR_BIT,
         VK_IMAGE_LAYOUT_UNDEFINED,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -608,9 +587,9 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
         VK_PIPELINE_STAGE_TRANSFER_BIT,
         VK_ACCESS_TRANSFER_WRITE_BIT
     );
-    cmd.copy_buffer_to_image(white_staging_buffer, white_image, { (uint32_t)1, (uint32_t)1, (uint32_t)1 });
+    cmd.copy_buffer_to_image(white_staging_buffer, white_texture, { (uint32_t)1, (uint32_t)1, (uint32_t)1 });
     cmd.image_barrier(
-        white_image,
+        white_texture,
         VK_IMAGE_ASPECT_COLOR_BIT,
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -619,7 +598,6 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         VK_ACCESS_SHADER_READ_BIT
     );
-    white_image_view = context->create_image_view(VK_FORMAT_R8G8B8A8_UNORM, white_image, VK_IMAGE_ASPECT_COLOR_BIT);
     create_scene_resources(cmd);
 }
 
@@ -913,8 +891,7 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             VK_WHOLE_SIZE
         );
     }
-    texture_images.resize(model.textures.size());
-    texture_image_views.resize(model.textures.size());
+    textures.resize(model.textures.size());
     for (uint32_t i = 0; i < model.textures.size(); i++) {
         auto& texture = model.textures[i];
         auto gltf_image = model.images[texture.source];
@@ -928,7 +905,7 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             VMA_MEMORY_USAGE_CPU_ONLY
         );
         context->update_buffer(staging_image_buffer, gltf_image.image.data(), image_size);
-        auto image = context->acquire_image(
+        auto image = context->create_texture(
             { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 },
             format,
             VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -955,13 +932,7 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             VK_ACCESS_SHADER_READ_BIT
         );
-        texture_images[i] = image;
-        auto image_view = context->create_image_view(
-            format,
-            image,
-            VK_IMAGE_ASPECT_COLOR_BIT
-        );
-        texture_image_views[i] = image_view;
+        textures[i] = image;
     }
     samplers.resize(model.samplers.size());
     for (uint32_t i = 0; i < model.samplers.size(); i++) {
@@ -1086,10 +1057,10 @@ void Application::draw_primitive(
         }
         // Base color texture.
         auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
-        auto base_color_image_view = base_color_texture_index < 0 ? white_image_view : texture_image_views[base_color_texture_index];
+        auto base_color_image = base_color_texture_index < 0 ? white_texture : textures[base_color_texture_index];
         auto base_color_sampler_index = base_color_texture_index < 0 ? -1 : model.textures[base_color_texture_index].sampler;
         auto base_color_sampler = base_color_sampler_index < 0 ? default_sampler : samplers[base_color_sampler_index];
-        cmd.set_combined_image_sampler(1, 3, base_color_image_view, base_color_sampler);
+        cmd.set_combined_image_sampler(1, 3, base_color_image, base_color_sampler);
         auto base_color_factor = glm::vec4(
             material.pbrMetallicRoughness.baseColorFactor[0],
             material.pbrMetallicRoughness.baseColorFactor[1],
@@ -1105,7 +1076,7 @@ void Application::draw_primitive(
         cmd.set_uniform_buffer(1, 0, base_color_factor_buffer, 0, sizeof(base_color_factor));
         // Normal map.
         auto normal_texture_index = material.normalTexture.index;
-        auto normal_texture_image_view = normal_texture_index < 0 ? white_image_view : texture_image_views[normal_texture_index];
+        auto normal_texture_image_view = normal_texture_index < 0 ? white_texture : textures[normal_texture_index];
         auto normal_texture_sampler_index = normal_texture_index < 0 ? -1 : model.textures[normal_texture_index].sampler;
         auto normal_texture_sampler = normal_texture_sampler_index < 0 ? default_sampler : samplers[normal_texture_sampler_index];
         cmd.set_combined_image_sampler(1, 4, normal_texture_image_view, normal_texture_sampler);

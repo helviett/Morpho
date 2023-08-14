@@ -89,29 +89,27 @@ struct RenderPass {
     RenderPassLayout layout;
 };
 
-struct Image {
+struct Texture {
+    VkFormat format;
+    bool owns_image;
     VkImage image;
+    VkImageView image_view;
     VmaAllocation allocation;
     VmaAllocationInfo allocation_info;
-};
-
-struct ImageView {
-    Image image;
-    VkImageView image_view;
 };
 
 struct FramebufferInfo {
     static constexpr uint32_t max_attachment_count = 8 + 1;
     RenderPassLayout layout;
     uint32_t attachment_count = 0;
-    ImageView attachments[max_attachment_count];
+    Texture attachments[max_attachment_count];
     VkExtent2D extent;
 };
 
 class FramebufferInfoBuilder {
 public:
     FramebufferInfoBuilder& layout(const RenderPassLayout& layout);
-    FramebufferInfoBuilder& attachment(ImageView image_view);
+    FramebufferInfoBuilder& attachment(Texture texture);
     FramebufferInfoBuilder& extent(VkExtent2D extent);
     FramebufferInfo info();
 private:
