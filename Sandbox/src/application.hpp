@@ -121,6 +121,7 @@ private:
     Morpho::Vulkan::Sampler default_sampler;
     Morpho::Vulkan::Sampler shadow_sampler;
     Morpho::Vulkan::Texture white_texture;
+    Morpho::Vulkan::Texture depth_buffer;
     std::vector<Morpho::Vulkan::Buffer> buffers;
     std::vector<Morpho::Vulkan::Texture> textures;
     std::vector<Morpho::Vulkan::Sampler> samplers;
@@ -182,8 +183,8 @@ private:
         const tinygltf::Primitive& primitive,
         Morpho::Vulkan::CommandBuffer& cmd
     );
-    Morpho::Vulkan::Texture render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const SpotLight& spot_light);
-    Morpho::Vulkan::Texture render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const PointLight& point_light);
+    void render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const Morpho::Vulkan::Texture& shadow_map, const SpotLight& spot_light);
+    void render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const Morpho::Vulkan::Texture& shadow_map, const PointLight& point_light);
     void begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd);
     void render_color_pass(
         Morpho::Vulkan::CommandBuffer& cmd,

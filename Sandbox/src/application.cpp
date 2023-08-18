@@ -190,6 +190,13 @@ void Application::init()
         VK_TRUE,
         VK_COMPARE_OP_LESS
     );
+    auto extent = context->get_swapchain_extent();
+    depth_buffer = context->create_texture(
+        { extent.width, extent.height, 1 },
+        VK_FORMAT_D16_UNORM,
+        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
 }
 
 void Application::run()
@@ -252,12 +259,11 @@ void Application::render_frame() {
         initialize_static_resources(cmd);
         is_first_update = false;
     }
-    shadow_maps.clear();
-    for (const SpotLight& spot_light : spot_lights) {
-        shadow_maps.push_back(render_depth_pass(cmd, spot_light));
+    for (uint32_t i = 0; i < spot_lights.size(); i++) {
+        render_depth_pass(cmd, shadow_maps[i], spot_lights[i]);
     }
-    for (const PointLight& point_light : point_lights) {
-        shadow_maps.push_back(render_depth_pass(cmd, point_light));
+    for (uint32_t i = 0; i < point_lights.size(); i++) {
+        render_depth_pass(cmd, shadow_maps[spot_lights.size() + i], point_lights[i]);
     }
     begin_color_pass(cmd);
     if (input.is_key_pressed(Key::LEFT_CONTROL)) {
@@ -297,8 +303,9 @@ void Application::render_frame() {
     context->end_frame();
 }
 
-Morpho::Vulkan::Texture Application::render_depth_pass(
+void Application::render_depth_pass(
     Morpho::Vulkan::CommandBuffer& cmd,
+    const Morpho::Vulkan::Texture& shadow_map,
     const SpotLight& spot_light
 ) {
     cmd.reset();
@@ -317,16 +324,10 @@ Morpho::Vulkan::Texture Application::render_depth_pass(
     cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
     cmd.set_uniform_buffer(0, 2, vp_buffer, 0, sizeof(ViewProjection));
     cmd.bind_pipeline(depth_pass_pipeline_ccw);
-    auto depth_image = context->create_temporary_texture(
-        { extent.width, extent.height, 1 },
-        VK_FORMAT_D16_UNORM,
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
     auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
         .layout(depth_pass_layout)
         .extent(extent)
-        .attachment(depth_image)
+        .attachment(shadow_map)
         .info()
     );
     cmd.begin_render_pass(
@@ -341,7 +342,7 @@ Morpho::Vulkan::Texture Application::render_depth_pass(
     draw_model(model, cmd);
     cmd.end_render_pass();
     cmd.image_barrier(
-        depth_image,
+        shadow_map,
         VK_IMAGE_ASPECT_DEPTH_BIT,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
@@ -350,12 +351,12 @@ Morpho::Vulkan::Texture Application::render_depth_pass(
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
         VK_ACCESS_SHADER_READ_BIT
     );
-    return depth_image;
 }
 
 
-Morpho::Vulkan::Texture Application::render_depth_pass(
+void Application::render_depth_pass(
     Morpho::Vulkan::CommandBuffer& cmd,
+    const Morpho::Vulkan::Texture& shadow_map,
     const PointLight& point_light
 ) {
     cmd.reset();
@@ -364,14 +365,6 @@ Morpho::Vulkan::Texture Application::render_depth_pass(
     extent.width = extent.height = std::max(extent.width, extent.height);
     cmd.set_viewport({ 0, 0, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
     cmd.set_scissor({ {0, 0}, extent });
-    auto depth_image = context->create_temporary_texture(
-        { extent.width, extent.height, 1 },
-        VK_FORMAT_D16_UNORM,
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY,
-        6,
-        VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT
-    );
     auto x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
     auto y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
     auto z = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
@@ -403,15 +396,15 @@ Morpho::Vulkan::Texture Application::render_depth_pass(
         context->update_buffer(vp_buffer, &vp, sizeof(ViewProjection));
         cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
         cmd.set_uniform_buffer(0, 2, vp_buffer, 0, sizeof(ViewProjection));
-        auto depth_image_view = context->create_temporary_texture_view(
-            depth_image,
+        auto shadow_map_view = context->create_temporary_texture_view(
+            shadow_map,
             i,
             1
         );
         auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
             .layout(depth_pass_layout)
             .extent(extent)
-            .attachment(depth_image_view)
+            .attachment(shadow_map_view)
             .info()
         );
         cmd.begin_render_pass(
@@ -427,7 +420,7 @@ Morpho::Vulkan::Texture Application::render_depth_pass(
         cmd.end_render_pass();
     }
     cmd.image_barrier(
-        depth_image,
+        shadow_map,
         VK_IMAGE_ASPECT_DEPTH_BIT,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
@@ -437,7 +430,6 @@ Morpho::Vulkan::Texture Application::render_depth_pass(
         VK_ACCESS_SHADER_READ_BIT,
         6
     );
-    return depth_image;
 }
 
 void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
@@ -445,16 +437,10 @@ void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
     auto extent = context->get_swapchain_extent();
     cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
     cmd.set_scissor({ {0, 0}, extent });
-    auto depth_image = context->create_temporary_texture(
-        { extent.width, extent.height, 1 },
-        VK_FORMAT_D16_UNORM,
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
     auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
         .layout(color_pass_layout)
         .extent(extent)
-        .attachment(depth_image)
+        .attachment(depth_buffer)
         .attachment(context->get_swapchain_texture())
         .info()
     );
@@ -800,6 +786,7 @@ void Application::update(float delta) {
         camera_position += world_up * (scale * delta * (float)vertical_move);
         camera.set_position(camera_position);
     }
+    auto extent = context->get_swapchain_extent();
     if (input.was_key_pressed(Key::F)) {
         spot_lights.push_back(SpotLight(
             camera.get_position(),
@@ -810,6 +797,13 @@ void Application::update(float delta) {
             cos(glm::radians(17.5f)),
             cos(glm::radians(12.5f))
         ));
+        auto shadow_map = context->create_texture(
+            { extent.width, extent.height, 1 },
+            VK_FORMAT_D16_UNORM,
+            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+        shadow_maps.insert(shadow_maps.begin() + (spot_lights.size() - 1), shadow_map);
     }
     if (input.was_key_pressed(Key::G) && point_lights.size() == 0) {
         point_lights.push_back(PointLight(
@@ -818,6 +812,17 @@ void Application::update(float delta) {
             15.0f,
             2.0f
         ));
+        auto face_extent = extent;
+        face_extent.width = face_extent.height = std::max(face_extent.width, face_extent.height);
+	auto shadow_map = context->create_texture(
+           { face_extent.width, face_extent.height, 1 },
+           VK_FORMAT_D16_UNORM,
+           VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+           VMA_MEMORY_USAGE_GPU_ONLY,
+           6,
+           VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT
+        );
+        shadow_maps.push_back(shadow_map);
     }
     if (input.was_key_pressed(Key::P) && !point_lights.empty()) {
         point_lights[0].position = camera.get_position();
