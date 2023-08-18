@@ -68,7 +68,9 @@ public:
     Pipeline create_pipeline(PipelineInfo &pipeline_info);
     // Keep Vulkan and VMA flags for now for simplicity and prototyping speed.
     Buffer acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
+    Buffer acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size);
     Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
+    Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size);
     void release_buffer(Buffer buffer);
     void update_buffer(const Buffer buffer, const void* data, uint64_t size);
     void map_memory(VmaAllocation allocation, void **map);

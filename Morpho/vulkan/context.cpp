@@ -617,6 +617,12 @@ Buffer Context::acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usag
     return buffer;
 }
 
+Buffer Context::acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size) {
+    Buffer buffer = acquire_buffer(size, buffer_usage, memory_usage);
+    update_buffer(buffer, data, data_size);
+    return buffer;
+}
+
 void Context::map_memory(VmaAllocation allocation, void **map) {
     auto res = vmaMapMemory(allocator, allocation, map);
 }
@@ -629,6 +635,12 @@ Buffer Context::acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buf
     auto& frame_context = get_current_frame_context();
     auto buffer = acquire_buffer(size, buffer_usage, memory_usage);
     release_buffer_on_frame_begin(buffer);
+    return buffer;
+}
+
+Buffer Context::acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size) {
+    Buffer buffer = acquire_staging_buffer(size, buffer_usage, memory_usage);
+    update_buffer(buffer, data, data_size);
     return buffer;
 }
 
