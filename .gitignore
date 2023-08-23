@@ -82,3 +82,5 @@ build
 .vscode
 *.spv
 CMakeUserPresets.json
+.cache
+
