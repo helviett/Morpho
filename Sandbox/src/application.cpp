@@ -4,6 +4,7 @@
 #include <glm/gtc/matrix_access.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <vulkan/vulkan_core.h>
 #include "math.hpp"
 
 namespace fs = std::filesystem;
@@ -117,8 +118,7 @@ void Application::init()
     };
     // light
     pipeline_info.shader_count = 2;
-    // TODO Additive and Z-Prepass
-    pipeline_info.blend_state = no_blend;
+    pipeline_info.blend_state = additive;
     pipeline_info.front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE;
     pipeline_info.render_pass_layout = &color_pass_layout;
     pipeline_info.pipeline_layout = &light_pipeline_layout;
@@ -156,6 +156,13 @@ void Application::init()
         no_light_pipeline_double_sided = context->create_pipeline(pipeline_info);
     }
     {
+        // Z prepass.
+        pipeline_info.shader_count = 1;
+        pipeline_info.shaders[0] = gltf_depth_pass_vertex_shader;
+        pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
+        z_prepass_pipeline = context->create_pipeline(pipeline_info);
+    }
+    {
         // Depth pass.
         pipeline_info.depth_bias_constant_factor = 4.0f;
         pipeline_info.depth_bias_slope_factor = 1.5f;
@@ -167,6 +174,7 @@ void Application::init()
         pipeline_info.front_face = VK_FRONT_FACE_CLOCKWISE;
         depth_pass_pipeline_cw = context->create_pipeline(pipeline_info);
     }
+
     pipeline_info.depth_test_enabled = false;
     pipeline_info.depth_write_enabled = false;
     pipeline_info.depth_bias_constant_factor = pipeline_info.depth_bias_slope_factor = 0.0f;
@@ -266,6 +274,7 @@ void Application::render_frame() {
         render_depth_pass(cmd, shadow_maps[spot_lights.size() + i], point_lights[i]);
     }
     begin_color_pass(cmd);
+    render_z_prepass(cmd);
     if (input.is_key_pressed(Key::LEFT_CONTROL)) {
         for (int i = 0; i < spot_lights.size(); i++) {
             if (i > 9) {
@@ -432,6 +441,26 @@ void Application::render_depth_pass(
         VK_ACCESS_SHADER_READ_BIT,
         6
     );
+}
+
+void Application::render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd) {
+    cmd.reset();
+    auto extent = context->get_swapchain_extent();
+    cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
+    cmd.set_scissor({ {0, 0}, extent });
+    ViewProjection vp;
+    vp.view = camera.get_view();
+    vp.proj = camera.get_projection();
+    auto vp_buffer = context->acquire_staging_buffer(
+        sizeof(ViewProjection),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_ONLY,
+        &vp,
+        sizeof(ViewProjection)
+    );
+    cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
+    cmd.bind_pipeline(z_prepass_pipeline);
+    draw_model(model, cmd);
 }
 
 void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {

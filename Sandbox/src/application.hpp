@@ -107,6 +107,7 @@ private:
     Morpho::Vulkan::Pipeline no_light_pipeline;
     Morpho::Vulkan::Pipeline no_light_pipeline_double_sided;
     Morpho::Vulkan::Pipeline shadow_map_visualization_pipeline;
+    Morpho::Vulkan::Pipeline z_prepass_pipeline;
     Morpho::Vulkan::RenderPass color_pass;
     Morpho::Vulkan::RenderPass depth_pass;
     Morpho::Vulkan::Shader gltf_depth_pass_vertex_shader;
@@ -185,6 +186,7 @@ private:
     );
     void render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const Morpho::Vulkan::Texture& shadow_map, const SpotLight& spot_light);
     void render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const Morpho::Vulkan::Texture& shadow_map, const PointLight& point_light);
+    void render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd);
     void begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd);
     void render_color_pass(
         Morpho::Vulkan::CommandBuffer& cmd,
