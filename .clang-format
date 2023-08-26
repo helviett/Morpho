@@ -1,0 +1,12 @@
+IndentWidth: 4
+AccessModifierOffset: -4
+AlignAfterOpenBracket: BlockIndent
+TabWidth: 4
+UseTab: Never
+InsertNewlineAtEOF: true
+InsertTrailingCommas: Wrapped
+BinPackArguments: false
+BinPackParameters: false
+SortIncludes: false
+SpaceAfterCStyleCast: false
+PointerAlignment: Left
