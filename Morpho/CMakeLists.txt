@@ -1,7 +1,7 @@
 ﻿# CMakeList.txt : CMake project for Morpho, include source and define
 # project specific logic here.
 #
-cmake_minimum_required (VERSION 3.25)
+cmake_minimum_required (VERSION 3.15)
 
 
 set(CMAKE_CXX_STANDARD 17)
@@ -28,10 +28,8 @@ set(SOURCE_FILES
 # Add source to this project's executable.
 add_library (Morpho STATIC ${SOURCE_FILES})
 
-message (${vulkan-memory-allocator_SOURCE_DIR})
-
+find_package(vulkan-memory-allocator CONFIG REQUIRED)
 find_package(glfw3 REQUIRED)
-message ($ENV{VULKAN_SDK}/Include/vma/)
-target_link_libraries(Morpho glfw Vulkan::Vulkan)
+
+target_link_libraries(Morpho glfw vulkan-memory-allocator::vulkan-memory-allocator Vulkan::Vulkan)
 target_include_directories(Morpho PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
-target_include_directories(Morpho PUBLIC ${vulkan-memory-allocator_SOURCE_DIR}/include)
