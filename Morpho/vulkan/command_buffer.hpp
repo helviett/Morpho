@@ -51,7 +51,7 @@ public:
         VkRect2D render_area,
         std::initializer_list<VkClearValue> clear_values
     );
-    void bind_pipeline(Pipeline& pipeline);
+    void bind_pipeline(const Pipeline& pipeline);
 
     void set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range);
     void set_combined_image_sampler(

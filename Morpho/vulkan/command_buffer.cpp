@@ -225,7 +225,7 @@ void CommandBuffer::begin_render_pass(
     vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 }
 
-void CommandBuffer::bind_pipeline(Pipeline& pipeline)
+void CommandBuffer::bind_pipeline(const Pipeline& pipeline)
 {
     this->pipeline = pipeline;
     vkCmdBindPipeline(this->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);

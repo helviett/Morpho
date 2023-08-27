@@ -161,6 +161,8 @@ void Application::init()
         pipeline_info.shaders[0] = gltf_depth_pass_vertex_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
         z_prepass_pipeline = context->create_pipeline(pipeline_info);
+        pipeline_info.cull_mode = VK_CULL_MODE_NONE;
+        z_prepass_pipeline_double_sided = context->create_pipeline(pipeline_info);
     }
     {
         // Depth pass.
@@ -170,9 +172,15 @@ void Application::init()
         pipeline_info.shaders[0] = gltf_depth_pass_vertex_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
         pipeline_info.render_pass_layout = &depth_pass_layout;
+        pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
         depth_pass_pipeline_ccw = context->create_pipeline(pipeline_info);
+        pipeline_info.cull_mode = VK_CULL_MODE_NONE;
+        depth_pass_pipeline_ccw_double_sided = context->create_pipeline(pipeline_info);
         pipeline_info.front_face = VK_FRONT_FACE_CLOCKWISE;
+        pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
         depth_pass_pipeline_cw = context->create_pipeline(pipeline_info);
+        pipeline_info.cull_mode = VK_CULL_MODE_NONE;
+        depth_pass_pipeline_cw_double_sided = context->create_pipeline(pipeline_info);
     }
 
     pipeline_info.depth_test_enabled = false;
@@ -333,7 +341,6 @@ void Application::render_depth_pass(
     );
     cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
     cmd.set_uniform_buffer(0, 2, vp_buffer, 0, sizeof(ViewProjection));
-    cmd.bind_pipeline(depth_pass_pipeline_ccw);
     auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
         .layout(depth_pass_layout)
         .extent(extent)
@@ -349,7 +356,7 @@ void Application::render_depth_pass(
             {0.0f, 0.0f, 0.0f, 0.0f},
         }
     );
-    draw_model(model, cmd);
+    draw_model(model, cmd, depth_pass_pipeline_ccw, depth_pass_pipeline_ccw_double_sided);
     cmd.end_render_pass();
     cmd.image_barrier(
         shadow_map,
@@ -370,7 +377,6 @@ void Application::render_depth_pass(
     const PointLight& point_light
 ) {
     cmd.reset();
-    cmd.bind_pipeline(depth_pass_pipeline_cw);
     auto extent = context->get_swapchain_extent();
     extent.width = extent.height = std::max(extent.width, extent.height);
     cmd.set_viewport({ 0, 0, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
@@ -427,7 +433,7 @@ void Application::render_depth_pass(
                 {0.0f, 0.0f, 0.0f, 0.0f},
             }
         );
-        draw_model(model, cmd);
+        draw_model(model, cmd, depth_pass_pipeline_cw, depth_pass_pipeline_cw_double_sided);
         cmd.end_render_pass();
     }
     cmd.image_barrier(
@@ -459,8 +465,7 @@ void Application::render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd) {
         sizeof(ViewProjection)
     );
     cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
-    cmd.bind_pipeline(z_prepass_pipeline);
-    draw_model(model, cmd);
+    draw_model(model, cmd, z_prepass_pipeline, z_prepass_pipeline_double_sided);
 }
 
 void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
@@ -515,9 +520,8 @@ void Application::render_color_pass(
         sizeof(ViewProjection)
     );
     cmd.set_uniform_buffer(0, 2, lvp_buffer, 0, sizeof(ViewProjection));
-    cmd.bind_pipeline(pointlight_pipeline_double_sided);
     cmd.set_combined_image_sampler(1, 5, shadow_map, shadow_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-    draw_model(model, cmd);
+    draw_model(model, cmd, pointlight_pipeline, pointlight_pipeline_double_sided);
 }
 
 void Application::render_color_pass(
@@ -549,9 +553,8 @@ void Application::render_color_pass(
         sizeof(ViewProjection)
     );
     cmd.set_uniform_buffer(0, 2, lvp_buffer, 0, sizeof(ViewProjection));
-    cmd.bind_pipeline(spotlight_pipeline_double_sided);
     cmd.set_combined_image_sampler(1, 5, shadow_map, shadow_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-    draw_model(model, cmd);
+    draw_model(model, cmd, spotlight_pipeline, spotlight_pipeline_double_sided);
 }
 
 void Application::draw_depth_image(Morpho::Vulkan::CommandBuffer& cmd, Morpho::Vulkan::Texture depth_map) {
@@ -990,16 +993,28 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
     }
 }
 
-void Application::draw_model(const tinygltf::Model& model, Morpho::Vulkan::CommandBuffer& cmd) {
-    current_material_index = -1;
+void Application::draw_model(
+    const tinygltf::Model& model,
+    Morpho::Vulkan::CommandBuffer& cmd,
+    const Morpho::Vulkan::Pipeline& normal_pipeline,
+    const Morpho::Vulkan::Pipeline& double_sided_pipeline
+) {
     for (const auto& scene : model.scenes) {
-        draw_scene(model, scene, cmd);
+        draw_scene(model, scene, cmd, normal_pipeline, double_sided_pipeline);
     }
+    currently_bound_pipeline = {};
+    current_material_index = -1;
 }
 
-void Application::draw_scene(const tinygltf::Model& model, const tinygltf::Scene& scene, Morpho::Vulkan::CommandBuffer& cmd) {
+void Application::draw_scene(
+    const tinygltf::Model& model,
+    const tinygltf::Scene& scene,
+    Morpho::Vulkan::CommandBuffer& cmd,
+    const Morpho::Vulkan::Pipeline& normal_pipeline,
+    const Morpho::Vulkan::Pipeline& double_sided_pipeline
+) {
     for (const auto node_index : scene.nodes) {
-        draw_node(model, model.nodes[node_index], cmd, glm::mat4(1.0f));
+        draw_node(model, model.nodes[node_index], cmd, normal_pipeline, double_sided_pipeline, glm::mat4(1.0f));
     }
 }
 
@@ -1007,6 +1022,8 @@ void Application::draw_node(
     const tinygltf::Model& model,
     const tinygltf::Node& node,
     Morpho::Vulkan::CommandBuffer& cmd,
+    const Morpho::Vulkan::Pipeline& normal_pipeline,
+    const Morpho::Vulkan::Pipeline& double_sided_pipeline,
     glm::mat4 parent_to_world
 ) {
     glm::mat4 local_to_world = glm::mat4(1.0f);
@@ -1050,27 +1067,31 @@ void Application::draw_node(
             sizeof(glm::mat4)
         );
         cmd.set_uniform_buffer(0, 1, uniform_buffer, 0, sizeof(glm::mat4));
-        draw_mesh(model, model.meshes[node.mesh], cmd);
+        draw_mesh(model, model.meshes[node.mesh], cmd, normal_pipeline, double_sided_pipeline);
     }
     for (uint32_t i = 0; i < node.children.size(); i++) {
-        draw_node(model, model.nodes[node.children[i]], cmd, local_to_world);
+        draw_node(model, model.nodes[node.children[i]], cmd, normal_pipeline, double_sided_pipeline, local_to_world);
     }
 }
 
 void Application::draw_mesh(
     const tinygltf::Model& model,
     const tinygltf::Mesh& mesh,
-    Morpho::Vulkan::CommandBuffer& cmd
+    Morpho::Vulkan::CommandBuffer& cmd,
+    const Morpho::Vulkan::Pipeline& normal_pipeline,
+    const Morpho::Vulkan::Pipeline& double_sided_pipeline
 ) {
     for (auto& primitive : mesh.primitives) {
-        draw_primitive(model, primitive, cmd);
+        draw_primitive(model, primitive, cmd, normal_pipeline, double_sided_pipeline);
     }
 }
 
 void Application::draw_primitive(
     const tinygltf::Model& model,
     const tinygltf::Primitive& primitive,
-    Morpho::Vulkan::CommandBuffer& cmd
+    Morpho::Vulkan::CommandBuffer& cmd,
+    const Morpho::Vulkan::Pipeline& normal_pipeline,
+    const Morpho::Vulkan::Pipeline& double_sided_pipeline
 ) {
     if (primitive.attributes.size() != 4) {
         return;
@@ -1125,7 +1146,11 @@ void Application::draw_primitive(
         auto normal_texture_sampler_index = normal_texture_index < 0 ? -1 : model.textures[normal_texture_index].sampler;
         auto normal_texture_sampler = normal_texture_sampler_index < 0 ? default_sampler : samplers[normal_texture_sampler_index];
         cmd.set_combined_image_sampler(1, 4, normal_texture_image_view, normal_texture_sampler);
-        // TODO: if (prevDoubleSided != material.doubleSided => bindPipeline(ds ? pds : p)
+        auto& pipeline_to_bind = material.doubleSided ? double_sided_pipeline : normal_pipeline;
+        if (current_material_index < 0 || currently_bound_pipeline.pipeline != pipeline_to_bind.pipeline) {
+            cmd.bind_pipeline(pipeline_to_bind);
+            currently_bound_pipeline = pipeline_to_bind;
+        }
         current_material_index = primitive.material;
     }
     current_binding = 0;

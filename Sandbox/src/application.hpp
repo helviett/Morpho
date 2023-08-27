@@ -1,5 +1,6 @@
 #pragma once
 
+#include "vulkan/resources.hpp"
 #define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -99,7 +100,9 @@ private:
     Morpho::Vulkan::PipelineLayout light_pipeline_layout;
     Morpho::Vulkan::PipelineLayout shadow_map_debug_pipeline_layout;
     Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw;
+    Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw_double_sided;
     Morpho::Vulkan::Pipeline depth_pass_pipeline_cw;
+    Morpho::Vulkan::Pipeline depth_pass_pipeline_cw_double_sided;
     Morpho::Vulkan::Pipeline spotlight_pipeline;
     Morpho::Vulkan::Pipeline spotlight_pipeline_double_sided;
     Morpho::Vulkan::Pipeline pointlight_pipeline;
@@ -108,6 +111,7 @@ private:
     Morpho::Vulkan::Pipeline no_light_pipeline_double_sided;
     Morpho::Vulkan::Pipeline shadow_map_visualization_pipeline;
     Morpho::Vulkan::Pipeline z_prepass_pipeline;
+    Morpho::Vulkan::Pipeline z_prepass_pipeline_double_sided;
     Morpho::Vulkan::RenderPass color_pass;
     Morpho::Vulkan::RenderPass depth_pass;
     Morpho::Vulkan::Shader gltf_depth_pass_vertex_shader;
@@ -145,6 +149,7 @@ private:
     tinygltf::TinyGLTF loader;
     tinygltf::Model model;
     int current_material_index = -1;
+    Morpho::Vulkan::Pipeline currently_bound_pipeline = {};
     // Perhaps should be retrieved via reflection.
     std::map<std::string, uint32_t> attribute_name_to_location = {
         {"POSITION", 0},
@@ -169,23 +174,52 @@ private:
     void update(float delta);
     Key glfw_key_code_to_key(int code);
     void create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd);
-    void draw_model(const tinygltf::Model& model, Morpho::Vulkan::CommandBuffer& cmd);
-    void draw_scene(const tinygltf::Model& model, const tinygltf::Scene& scene, Morpho::Vulkan::CommandBuffer& cmd);
+    void draw_model(
+        const tinygltf::Model& model,
+        Morpho::Vulkan::CommandBuffer& cmd,
+        const Morpho::Vulkan::Pipeline& normal_pipeline,
+        const Morpho::Vulkan::Pipeline& double_sided_pipeline
+    );
+    void draw_scene(
+        const tinygltf::Model& model,
+        const tinygltf::Scene& scene,
+        Morpho::Vulkan::CommandBuffer& cmd,
+        const Morpho::Vulkan::Pipeline& normal_pipeline,
+        const Morpho::Vulkan::Pipeline& double_sided_pipeline
+    );
     void draw_node(
         const tinygltf::Model& model,
         const tinygltf::Node& node,
         Morpho::Vulkan::CommandBuffer& cmd,
+        const Morpho::Vulkan::Pipeline& normal_pipeline,
+        const Morpho::Vulkan::Pipeline& double_sided_pipeline,
         glm::mat4 parent_to_world
     );
-    void draw_depth_image(Morpho::Vulkan::CommandBuffer &cmd, Morpho::Vulkan::Texture depth_map);
-    void draw_mesh(const tinygltf::Model& model, const tinygltf::Mesh& mesh, Morpho::Vulkan::CommandBuffer& cmd);
+    void draw_mesh(
+        const tinygltf::Model& model,
+        const tinygltf::Mesh& mesh,
+        Morpho::Vulkan::CommandBuffer& cmd,
+        const Morpho::Vulkan::Pipeline& normal_pipeline,
+        const Morpho::Vulkan::Pipeline& double_sided_pipeline
+    );
     void draw_primitive(
         const tinygltf::Model& model,
         const tinygltf::Primitive& primitive,
-        Morpho::Vulkan::CommandBuffer& cmd
+        Morpho::Vulkan::CommandBuffer& cmd,
+        const Morpho::Vulkan::Pipeline& normal_pipeline,
+        const Morpho::Vulkan::Pipeline& double_sided_pipeline
     );
-    void render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const Morpho::Vulkan::Texture& shadow_map, const SpotLight& spot_light);
-    void render_depth_pass(Morpho::Vulkan::CommandBuffer& cmd, const Morpho::Vulkan::Texture& shadow_map, const PointLight& point_light);
+    void draw_depth_image(Morpho::Vulkan::CommandBuffer &cmd, Morpho::Vulkan::Texture depth_map);
+    void render_depth_pass(
+        Morpho::Vulkan::CommandBuffer& cmd,
+        const Morpho::Vulkan::Texture& shadow_map,
+        const SpotLight& spot_ligt
+    );
+    void render_depth_pass(
+        Morpho::Vulkan::CommandBuffer& cmd,
+        const Morpho::Vulkan::Texture& shadow_map,
+        const PointLight& point_light
+    );
     void render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd);
     void begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd);
     void render_color_pass(
