@@ -6,6 +6,7 @@
 #include "../common/hash_utils.hpp"
 #include "limits.hpp"
 #include <stdexcept>
+#include <vulkan/vulkan_core.h>
 
 namespace Morpho::Vulkan {
 
@@ -15,8 +16,43 @@ struct Buffer {
     VmaAllocationInfo allocation_info;
 };
 
+struct Texture {
+    VkFormat format;
+    bool owns_image;
+    VkImage image;
+    VkImageView image_view;
+    VmaAllocation allocation;
+    VmaAllocationInfo allocation_info;
+};
+
+struct Sampler {
+    VkSampler sampler;
+};
+
 struct DescriptorSet {
     VkDescriptorSet descriptor_set;
+    uint32_t set_index;
+    VkPipelineLayout pipeline_layout;
+};
+
+struct TextureDescriptorInfo {
+    Texture texture;
+    Sampler sampler;
+};
+
+struct BufferDescriptorInfo {
+    Buffer buffer;
+    uint64_t offset;
+    uint64_t range;
+};
+
+struct DescriptorSetUpdateRequest {
+    uint32_t binding;
+    VkDescriptorType descriptor_type;
+    union {
+        TextureDescriptorInfo texture_info;
+        BufferDescriptorInfo buffer_info;
+    } descriptor_info;
 };
 
 struct SubpassInfo {
@@ -89,15 +125,6 @@ struct RenderPass {
     RenderPassLayout layout;
 };
 
-struct Texture {
-    VkFormat format;
-    bool owns_image;
-    VkImage image;
-    VkImageView image_view;
-    VmaAllocation allocation;
-    VmaAllocationInfo allocation_info;
-};
-
 struct FramebufferInfo {
     static constexpr uint32_t max_attachment_count = 8 + 1;
     RenderPassLayout layout;
@@ -118,10 +145,6 @@ private:
 
 struct Framebuffer {
     VkFramebuffer framebuffer;
-};
-
-struct Sampler {
-    VkSampler sampler;
 };
 
 enum class ShaderStage {
@@ -153,11 +176,14 @@ struct Shader {
 struct PipelineLayoutInfo {
     VkDescriptorSetLayoutBinding* set_binding_infos[Limits::MAX_DESCRIPTOR_SET_COUNT];
     uint32_t set_binding_count[Limits::MAX_DESCRIPTOR_SET_COUNT];
+    uint32_t max_descriptor_set_counts[Limits::MAX_DESCRIPTOR_SET_COUNT];
 };
 
 struct PipelineLayout {
     VkPipelineLayout pipeline_layout;
+    // TODO: I think in the end I'll have to just create DescriptorSetLayout.
     VkDescriptorSetLayout descriptor_set_layouts[Limits::MAX_DESCRIPTOR_SET_COUNT];
+    VkDescriptorPool descriptor_pools[Limits::MAX_DESCRIPTOR_SET_COUNT];
 };
 
 struct PipelineInfo {

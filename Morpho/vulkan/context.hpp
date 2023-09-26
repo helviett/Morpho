@@ -72,14 +72,12 @@ public:
     Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
     Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size);
     void release_buffer(Buffer buffer);
-    void update_buffer(const Buffer buffer, const void* data, uint64_t size);
+    void update_buffer(const Buffer buffer, uint64_t offset, const void* data, uint64_t size);
     void map_memory(VmaAllocation allocation, void **map);
     void unmap_memory(VmaAllocation allocation);
-    PipelineLayout acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT]);
     PipelineLayout create_pipeline_layout(const PipelineLayoutInfo& pipeline_layout_info);
     void destroy_pipline_layout(const PipelineLayout& pipeline_layout);
     DescriptorSet acquire_descriptor_set(VkDescriptorSetLayout descriptor_set_layout);
-    void update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set);
     Texture create_texture(
         VkExtent3D extent,
         VkFormat format,
@@ -122,6 +120,14 @@ public:
         VkBool32 compare_enable = VK_FALSE,
         VkCompareOp compare_op = VK_COMPARE_OP_NEVER
     );
+    DescriptorSet create_descriptor_set(const PipelineLayout& pipeline_layout, uint32_t set_index);
+    void update_descriptor_set(
+        const DescriptorSet& descriptor_set,
+        DescriptorSetUpdateRequest* update_requests,
+        const uint32_t request_count
+    );
+
+    uint64_t get_uniform_buffer_alignment() const;
 
     // public WSI stuff
     Texture get_swapchain_texture() const;
@@ -144,12 +150,14 @@ private:
     VkInstance instance = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
     VkDescriptorSetLayout empty_descriptor_set_layout;
+    VkDescriptorPool empty_descriptor_pool;
+    VkDescriptorSet empty_descriptor_set;
     VkQueue graphics_queue;
     uint32_t graphics_queue_family_index;
     VmaAllocator allocator;
-    ResourceCache<VkPipelineLayout> pipeline_layout_cache;
-    ResourceCache<VkDescriptorSetLayout> descriptor_set_layout_cache;
+    // TODO: remove useless cache.
     ResourceCache<VkRenderPass> render_pass_cache;
+    uint64_t min_uniform_buffer_offset_alignment;
 
     struct FrameContext {
         // Stays here for a while for simplicity
@@ -175,6 +183,7 @@ private:
         void* pUserData
     );
     VkPhysicalDevice select_gpu();
+    void query_gpu_properties();
     VkResult try_create_instance(std::vector<const char*>& extensions, std::vector<const char*>& layers);
     VkDebugUtilsMessengerCreateInfoEXT get_default_messenger_create_info();
     VkRenderPass create_render_pass(const RenderPassInfo& info);

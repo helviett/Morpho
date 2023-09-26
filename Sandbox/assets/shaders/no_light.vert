@@ -5,7 +5,7 @@ layout(set = 0, binding = 0) uniform ViewProjectionBlock {
     mat4 proj;
 } vp;
 
-layout(set = 0, binding = 1) uniform ModelBlock {
+layout(set = 3, binding = 0) uniform ModelBlock {
     mat4 t;
 } model;
 

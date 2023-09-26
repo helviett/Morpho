@@ -3,6 +3,7 @@
 #include <optional>
 #include "../common/hash_utils.hpp"
 #include <cstddef>
+#include <vulkan/vulkan_core.h>
 
 namespace Morpho::Vulkan {
 
@@ -59,6 +60,7 @@ void Context::init(GLFWwindow* window) {
     if ((gpu = select_gpu()) == VK_NULL_HANDLE) {
         throw std::runtime_error("There is no suitable gpu.");
     }
+    query_gpu_properties();
 
     VK_CHECK(try_create_device(), "Unable to create logical device.")
     retrieve_queues();
@@ -75,7 +77,21 @@ void Context::init(GLFWwindow* window) {
     VkDescriptorSetLayoutCreateInfo vk_descriptor_set_layout_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, };
     VK_CHECK(
         vkCreateDescriptorSetLayout(device, &vk_descriptor_set_layout_info, nullptr, &empty_descriptor_set_layout),
-        "Unable to create VkDescriptorSetLayout"
+        "Unable to create empty VkDescriptorSetLayout"
+    );
+    VkDescriptorPoolCreateInfo vk_descriptor_pool_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO, };
+    vk_descriptor_pool_info.maxSets = 1;
+    VK_CHECK(
+        vkCreateDescriptorPool(device, &vk_descriptor_pool_info, nullptr, &empty_descriptor_pool),
+        "Unable to create empty VkDescriptorPool"
+    );
+    VkDescriptorSetAllocateInfo vk_descriptor_set_allocate_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO, };
+    vk_descriptor_set_allocate_info.pSetLayouts = &empty_descriptor_set_layout;
+    vk_descriptor_set_allocate_info.descriptorSetCount = 1;
+    vk_descriptor_set_allocate_info.descriptorPool = empty_descriptor_pool;
+    VK_CHECK(
+        vkAllocateDescriptorSets(device, &vk_descriptor_set_allocate_info, &empty_descriptor_set),
+        "Unable to allocate empty VkDescriptorSet"
     );
 }
 
@@ -106,6 +122,12 @@ VkPhysicalDevice Context::select_gpu() {
     }
 
     return best_candidate;
+}
+
+void Context::query_gpu_properties() {
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(gpu, &properties);
+    min_uniform_buffer_offset_alignment = properties.limits.minUniformBufferOffsetAlignment;
 }
 
 VkResult Context::try_create_instance(std::vector<const char*>& extensions, std::vector<const char*>& layers) {
@@ -619,7 +641,7 @@ Buffer Context::acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usag
 
 Buffer Context::acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size) {
     Buffer buffer = acquire_buffer(size, buffer_usage, memory_usage);
-    update_buffer(buffer, data, data_size);
+    update_buffer(buffer, 0, data, data_size);
     return buffer;
 }
 
@@ -640,7 +662,7 @@ Buffer Context::acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buf
 
 Buffer Context::acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size) {
     Buffer buffer = acquire_staging_buffer(size, buffer_usage, memory_usage);
-    update_buffer(buffer, data, data_size);
+    update_buffer(buffer, 0, data, data_size);
     return buffer;
 }
 
@@ -648,11 +670,11 @@ void Context::release_buffer(Buffer buffer) {
     release_buffer_on_frame_begin(buffer);
 }
 
-void Context::update_buffer(const Buffer buffer, const void* data, uint64_t size)
+void Context::update_buffer(const Buffer buffer, uint64_t offset, const void* data, uint64_t size)
 {
     void* mapped;
     map_memory(buffer.allocation, &mapped);
-    memcpy(mapped, data, size);
+    memcpy((char*)mapped + offset, data, size);
     unmap_memory(buffer.allocation);
 }
 
@@ -692,108 +714,13 @@ DescriptorSet Context::acquire_descriptor_set(VkDescriptorSetLayout descriptor_s
     pool_sizes[1].descriptorCount = 128;
     VkDescriptorPoolCreateInfo pool_info{};
     pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.poolSizeCount = 1;
+    pool_info.poolSizeCount = 2;
     pool_info.pPoolSizes = pool_sizes;
     pool_info.maxSets = 16;
     VkDescriptorPool vulkan_descriptor_pool;
     vkCreateDescriptorPool(device, &pool_info, nullptr, &vulkan_descriptor_pool);
     frame_context.descriptor_pools.push_back(DescriptorPool(device, vulkan_descriptor_pool, 16));
     return acquire_descriptor_set(descriptor_set_layout);
-}
-
-void Context::update_descriptor_set(DescriptorSet descriptor_set, ResourceSet resource_set) {
-    auto descriptor_set_handle = descriptor_set.descriptor_set;
-    VkWriteDescriptorSet writes[Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT];
-    uint32_t current_write = 0;
-    for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT; i++) {
-        const auto& binding = resource_set.get_binding(i);
-        auto& write = writes[current_write];
-        write = {};
-        switch (binding.get_resource_type())
-        {
-        case ResourceType::None:
-            continue;
-        case ResourceType::UniformBuffer:
-            write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-            write.pBufferInfo = binding.get_buffer_info();
-            break;
-        case ResourceType::CombinedImageSampler:
-            write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-            write.pImageInfo = binding.get_image_info();
-            break;
-        default:
-            throw std::runtime_error("Not implemented exception.");
-        }
-        write.dstSet = descriptor_set_handle;
-        write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-        write.dstBinding = i;
-        write.dstArrayElement = 0;
-        write.descriptorCount = 1;
-
-        current_write++;
-    }
-    if (current_write != 0) {
-        vkUpdateDescriptorSets(device, current_write, writes, 0, nullptr);
-    }
-}
-
-PipelineLayout Context::acquire_pipeline_layout(ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT]) {
-    PipelineLayout pipeline_layout{};
-    VkPipelineLayoutCreateInfo pipeline_layout_info{};
-    pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-    pipeline_layout_info.setLayoutCount = Limits::MAX_DESCRIPTOR_SET_COUNT;
-    pipeline_layout_info.pSetLayouts = pipeline_layout.descriptor_set_layouts;
-    size_t pipeline_layout_hash = 0;
-    for (int i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
-        auto& set = sets[i];
-        VkDescriptorSetLayoutCreateInfo layout_info{};
-        layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-        VkDescriptorSetLayoutBinding bindings[Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT];
-        layout_info.pBindings = bindings;
-        layout_info.flags = 0;
-        uint32_t current_binding = 0;
-        size_t hash = 0;
-        for (uint32_t j = 0; j < Limits::MAX_DESCRIPTOR_SET_BINDING_COUNT; j++) {
-            auto binding = set.get_binding(j);
-            switch (binding.get_resource_type())
-            {
-            case ResourceType::None:
-                continue;
-            case ResourceType::UniformBuffer:
-                bindings[current_binding].descriptorCount = 1;
-                bindings[current_binding].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                // TODO: Dehardcode.
-                bindings[current_binding].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-                break;
-            case ResourceType::CombinedImageSampler:
-                bindings[current_binding].descriptorCount = 1;
-                bindings[current_binding].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                // TODO: Dehardcode.
-                bindings[current_binding].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-                break;
-            default:
-                break;
-            }
-            hash_combine(hash, j, binding.get_resource_type());
-            bindings[current_binding].binding = j;
-            bindings[current_binding].pImmutableSamplers = nullptr;
-            current_binding++;
-        }
-        layout_info.bindingCount = current_binding;
-        VkDescriptorSetLayout descriptor_set_layout;
-        if (!descriptor_set_layout_cache.try_get(hash, descriptor_set_layout)) {
-            vkCreateDescriptorSetLayout(device, &layout_info, nullptr, &descriptor_set_layout);
-            descriptor_set_layout_cache.add(hash, descriptor_set_layout);
-        }
-        hash_combine(pipeline_layout_hash, i, descriptor_set_layout);
-        pipeline_layout.descriptor_set_layouts[i] = descriptor_set_layout;
-    }
-    if (!pipeline_layout_cache.try_get(pipeline_layout_hash, pipeline_layout.pipeline_layout)) {
-        vkCreatePipelineLayout(device, &pipeline_layout_info, nullptr, &pipeline_layout.pipeline_layout);
-        pipeline_layout_cache.add(pipeline_layout_hash, pipeline_layout.pipeline_layout);
-    }
-
-    return pipeline_layout;
 }
 
 PipelineLayout Context::create_pipeline_layout(const PipelineLayoutInfo& pipeline_layout_info)
@@ -804,16 +731,44 @@ PipelineLayout Context::create_pipeline_layout(const PipelineLayoutInfo& pipelin
     vk_pipeline_layout_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
     vk_pipeline_layout_info.setLayoutCount = Limits::MAX_DESCRIPTOR_SET_COUNT;
     vk_pipeline_layout_info.pSetLayouts = pipeline_layout.descriptor_set_layouts;
-    for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
-        if (pipeline_layout_info.set_binding_count[i] == 0) {
-            descriptor_set_layouts[i] = empty_descriptor_set_layout;
+    VkDescriptorPoolSize descriptor_pool_sizes[VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT + 1]{};
+    for (uint32_t set_index = 0; set_index < Limits::MAX_DESCRIPTOR_SET_COUNT; set_index++) {
+        if (pipeline_layout_info.set_binding_count[set_index] == 0) {
+            descriptor_set_layouts[set_index] = empty_descriptor_set_layout;
+            pipeline_layout.descriptor_pools[set_index] = VK_NULL_HANDLE;
             continue;
         }
-        VkDescriptorSetLayoutCreateInfo vk_descriptor_set_layout_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, };
-        vk_descriptor_set_layout_info.bindingCount = pipeline_layout_info.set_binding_count[i];
-        vk_descriptor_set_layout_info.pBindings = pipeline_layout_info.set_binding_infos[i];
+        for (uint32_t j = 0; j <= VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT; j++)  {
+            descriptor_pool_sizes[j].type = (VkDescriptorType)j;
+            descriptor_pool_sizes[j].descriptorCount = 0;
+        }
+        for (uint32_t j = 0; j < pipeline_layout_info.set_binding_count[set_index]; j++) {
+            auto& binding_info = pipeline_layout_info.set_binding_infos[set_index][j];
+            descriptor_pool_sizes[binding_info.descriptorType].descriptorCount += binding_info.descriptorCount;
+        }
+        uint32_t non_zero_size_count = 0;
+        for (uint32_t size_index = 0; size_index <= VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT; size_index++) {
+            if (descriptor_pool_sizes[size_index].descriptorCount != 0) {
+                descriptor_pool_sizes[non_zero_size_count++] = descriptor_pool_sizes[size_index];
+            }
+        }
+        assert(non_zero_size_count != 0);
+        for (uint32_t size_index = 0; size_index < non_zero_size_count; size_index++)  {
+            descriptor_pool_sizes[size_index].descriptorCount *=
+                pipeline_layout_info.max_descriptor_set_counts[set_index];
+        }
+        VkDescriptorPoolCreateInfo pool_info{};
+        pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+        pool_info.maxSets = pipeline_layout_info.max_descriptor_set_counts[set_index];
+        pool_info.pPoolSizes = descriptor_pool_sizes;
+        pool_info.poolSizeCount = non_zero_size_count;
+        vkCreateDescriptorPool(device, &pool_info, nullptr, &pipeline_layout.descriptor_pools[set_index]);
+        VkDescriptorSetLayoutCreateInfo vk_descriptor_set_layout_info{};
+        vk_descriptor_set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+        vk_descriptor_set_layout_info.bindingCount = pipeline_layout_info.set_binding_count[set_index];
+        vk_descriptor_set_layout_info.pBindings = pipeline_layout_info.set_binding_infos[set_index];
         VK_CHECK(
-            vkCreateDescriptorSetLayout(device, &vk_descriptor_set_layout_info, nullptr, &descriptor_set_layouts[i]),
+            vkCreateDescriptorSetLayout(device, &vk_descriptor_set_layout_info, nullptr, &descriptor_set_layouts[set_index]),
             "Unable to create VkDescriptorSetLayout"
         );
     }
@@ -830,6 +785,8 @@ void Context::destroy_pipline_layout(const PipelineLayout &pipeline_layout)
     for (uint32_t i = 0; i < Limits::MAX_DESCRIPTOR_SET_COUNT; i++) {
         if (pipeline_layout.descriptor_set_layouts[i] != empty_descriptor_set_layout) {
             vkDestroyDescriptorSetLayout(device, pipeline_layout.descriptor_set_layouts[i], nullptr);
+            vkResetDescriptorPool(device, pipeline_layout.descriptor_pools[i], 0);
+            vkDestroyDescriptorPool(device, pipeline_layout.descriptor_pools[i], nullptr);
         }
     }
 }
@@ -987,6 +944,95 @@ Sampler Context::acquire_sampler(
     Sampler sampler{};
     sampler.sampler = vk_sampler;
     return sampler;
+}
+
+DescriptorSet Context::create_descriptor_set(const PipelineLayout& pipeline_layout, uint32_t set_index) {
+    if (pipeline_layout.descriptor_set_layouts[set_index] == empty_descriptor_set_layout) {
+        DescriptorSet set{};
+        set.descriptor_set = empty_descriptor_set;
+        return set;
+    }
+    auto descriptor_set_layout = pipeline_layout.descriptor_set_layouts[set_index];
+    VkDescriptorSetAllocateInfo allocate_info{};
+    allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    allocate_info.pSetLayouts = &descriptor_set_layout;
+    allocate_info.descriptorPool = pipeline_layout.descriptor_pools[set_index];
+    allocate_info.descriptorSetCount = 1;
+    VkDescriptorSet vk_descriptor_set = VK_NULL_HANDLE;
+    VK_CHECK(
+        vkAllocateDescriptorSets(device, &allocate_info, &vk_descriptor_set),
+        "Unable to allocate VkDescriptorSet. Probably not enough decriptors in the pool."
+    );
+    assert(pipeline_layout.pipeline_layout != NULL);
+    DescriptorSet descriptor_set{};
+    descriptor_set.descriptor_set = vk_descriptor_set;
+    descriptor_set.set_index = set_index;
+    descriptor_set.pipeline_layout = pipeline_layout.pipeline_layout;
+    return descriptor_set;
+}
+
+bool is_buffer_descriptor(VkDescriptorType type) {
+    return  type == VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
+        || type == VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER
+        || type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+        || type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+        || type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
+        || type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC
+        || type == VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT;
+}
+
+void Context::update_descriptor_set(
+    const DescriptorSet& descriptor_set,
+    DescriptorSetUpdateRequest* update_requests,
+    const uint32_t request_count
+) {
+    const uint32_t write_batch_size = 128;
+    VkWriteDescriptorSet writes[write_batch_size]{};
+    union {
+        VkDescriptorImageInfo image_info;
+        VkDescriptorBufferInfo buffer_info;
+    } descriptor_infos[write_batch_size]{};
+    uint32_t current_batch_size = 0;
+    uint32_t batch_count = (request_count + write_batch_size - 1) / write_batch_size;
+    uint32_t remaining_request_count = request_count;
+    uint32_t request_index = 0;
+    for (uint32_t batch_index = 0; batch_index < batch_count; batch_index++) {
+        const uint32_t write_count = std::min(write_batch_size, remaining_request_count);
+        for (uint32_t write_index = 0; write_index < write_count; write_index++) {
+            auto& write = writes[write_index];
+            auto& request = update_requests[request_index++];
+            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+            write.dstSet = descriptor_set.descriptor_set;
+            write.dstBinding = request.binding;
+            write.descriptorType = request.descriptor_type;
+            write.descriptorCount = 1;
+            if (is_buffer_descriptor(write.descriptorType)) {
+                auto buffer_info = request.descriptor_info.buffer_info;
+                auto vk_buffer_info = &descriptor_infos[write_index].buffer_info;
+                vk_buffer_info->buffer = buffer_info.buffer.buffer;
+                vk_buffer_info->offset = buffer_info.offset;
+                vk_buffer_info->range = buffer_info.range;
+                write.pBufferInfo = vk_buffer_info;
+                write.pImageInfo = nullptr;
+            } else {
+                auto texture_info = request.descriptor_info.texture_info;
+                auto* vk_image_info = &descriptor_infos[write_index].image_info;
+                vk_image_info->sampler = texture_info.sampler.sampler;
+                vk_image_info->imageView = texture_info.texture.image_view;
+                vk_image_info->imageLayout = is_depth_format(texture_info.texture.format)
+                    ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                    : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                write.pImageInfo = vk_image_info;
+                write.pBufferInfo = nullptr;
+            }
+        }
+        vkUpdateDescriptorSets(device, write_count, writes, 0, nullptr);
+        remaining_request_count -= write_batch_size;
+    }
+}
+
+uint64_t Context::get_uniform_buffer_alignment() const {
+    return min_uniform_buffer_offset_alignment;
 }
 
 VkFormat Context::get_swapchain_format() const {

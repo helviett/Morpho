@@ -10,21 +10,22 @@ struct SpotLight {
     float penumbra;
 };
 
-layout(set = 1, binding = 0) uniform Materal {
-    vec4 base_color_factor;
-} material;
+layout(set = 0, binding = 0) uniform ViewProjectionBlock {
+    mat4 view;
+    mat4 proj;
+} vp;
 
 layout(set = 1, binding = 1, std140) uniform SpotLightBlock {
     SpotLight data;
 } spot_light;
+layout(set = 1, binding = 2) uniform sampler2DShadow shadow_map;
 
-layout(set = 1, binding = 2) uniform View {
-    vec3 position;
-} view;
+layout(set = 2, binding = 0) uniform Materal {
+    vec4 base_color_factor;
+} material;
+layout(set = 2, binding = 1) uniform sampler2D base_color_texture;
+layout(set = 2, binding = 2) uniform sampler2D normal_texture;
 
-layout(set = 1, binding = 3) uniform sampler2D base_color_texture;
-layout(set = 1, binding = 4) uniform sampler2D normal_texture;
-layout(set = 1, binding = 5) uniform sampler2DShadow shadow_map;
 
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;
@@ -86,7 +87,7 @@ float calculate_shadow(vec4 position) {
 void main() {
     vec3 base_color = texture(base_color_texture, in_uv).rgb * material.base_color_factor.rgb;
     vec3 normal = fetch_normal_vector();
-    vec3 view_dir = normalize(view.position - in_position);
+    vec3 view_dir = normalize(vp.view[3].xyz - in_position);
     vec3 ambient = 0.5 * base_color;
     vec3 light = calculate_spot_light(spot_light.data, normal, view_dir);
     float shadow = calculate_shadow(in_light_space_position);

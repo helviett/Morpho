@@ -2,7 +2,6 @@
 #include <vulkan/vulkan.h>
 #include "limits.hpp"
 #include "resources.hpp"
-#include "resource_set.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -53,27 +52,16 @@ public:
     );
     void bind_pipeline(const Pipeline& pipeline);
 
-    void set_uniform_buffer(uint32_t set, uint32_t binding, Buffer buffer, VkDeviceSize offset, VkDeviceSize range);
-    void set_combined_image_sampler(
-        uint32_t set,
-        uint32_t binding,
-        Texture texture,
-        Sampler sampler,
-        VkImageLayout image_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-    );
     void reset();
     void set_viewport(VkViewport viewport);
     void set_scissor(VkRect2D scissor);
+    void bind_descriptor_set(const DescriptorSet& set);
 private:
     VkCommandBuffer command_buffer;
     RenderPass current_render_pass = RenderPass();
     Pipeline pipeline;
     Context* context;
-    ResourceSet sets[Limits::MAX_DESCRIPTOR_SET_COUNT];
     DescriptorSet descriptor_sets[Limits::MAX_DESCRIPTOR_SET_COUNT];
-
-    void flush_descriptor_sets();
-    void flush();
 };
 
 }

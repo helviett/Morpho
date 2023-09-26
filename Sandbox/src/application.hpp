@@ -53,6 +53,13 @@ struct PointLight {
     }
 };
 
+struct MaterialParameters {
+    // 16 bytes
+    glm::vec4 base_color_factor;
+    // 256 - 16 bytes
+    uint32_t padding[60];
+};
+
 struct SpotLight {
     alignas(16) glm::vec3 position;
     alignas(16) glm::vec3 direction;
@@ -81,6 +88,22 @@ struct SpotLight {
     }
 };
 
+enum class LightType {
+    SpotLight,
+    PointLight,
+};
+
+struct Light {
+    LightType light_type;
+    uint32_t descriptor_set_start_index;
+    Morpho::Vulkan::Texture shadow_map;
+    Morpho::Vulkan::Texture views[6];
+    union LightData {
+        SpotLight spot_light;
+        PointLight point_light;
+    } light_data;
+};
+
 class Application {
 public:
     void init();
@@ -88,17 +111,17 @@ public:
     void set_graphics_context(Morpho::Vulkan::Context* context);
     bool load_scene(std::filesystem::path file_path);
 private:
+    static const uint32_t frame_in_flight_count = 2;
+    static const uint32_t max_light_count = 128;
+
     Input input;
     GLFWwindow* window;
     Key key_map[Input::MAX_KEY_COUNT];
     Morpho::Vulkan::Context* context;
-    Morpho::Vulkan::Buffer vertex_buffer;
-    Morpho::Vulkan::Buffer index_buffer;
 
     Morpho::Vulkan::RenderPassLayout color_pass_layout;
     Morpho::Vulkan::RenderPassLayout depth_pass_layout;
     Morpho::Vulkan::PipelineLayout light_pipeline_layout;
-    Morpho::Vulkan::PipelineLayout shadow_map_debug_pipeline_layout;
     Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw;
     Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw_double_sided;
     Morpho::Vulkan::Pipeline depth_pass_pipeline_cw;
@@ -114,6 +137,7 @@ private:
     Morpho::Vulkan::Pipeline z_prepass_pipeline_double_sided;
     Morpho::Vulkan::RenderPass color_pass;
     Morpho::Vulkan::RenderPass depth_pass;
+    Morpho::Vulkan::Shader z_prepass_shader;
     Morpho::Vulkan::Shader gltf_depth_pass_vertex_shader;
     Morpho::Vulkan::Shader gltf_spot_light_vertex_shader;
     Morpho::Vulkan::Shader gltf_point_light_vertex_shader;
@@ -130,15 +154,21 @@ private:
     std::vector<Morpho::Vulkan::Buffer> buffers;
     std::vector<Morpho::Vulkan::Texture> textures;
     std::vector<Morpho::Vulkan::Sampler> samplers;
-    std::vector<Morpho::Vulkan::Texture> shadow_maps;
-    uint32_t frames = 0;
-    // DirectionalLight directional_light = {
-    //     glm::vec3(0.0f, -1.0f, 0.0f),
-    //     glm::vec3(1.0f, 1.0f, 1.0f),
-    // };
-    // PointLight point_light = PointLight(glm::vec3(0.0f), glm::vec3(1.0f, 0.0, 0.0), 10.0f, 10.0f);
-    std::vector<SpotLight> spot_lights;
-    std::vector<PointLight> point_lights;
+    Morpho::Vulkan::Buffer globals_buffer;
+    Morpho::Vulkan::DescriptorSet global_descriptor_sets[frame_in_flight_count];
+    Morpho::Vulkan::Buffer material_buffer;
+    std::vector<Morpho::Vulkan::DescriptorSet> material_descriptor_sets;
+    Morpho::Vulkan::Buffer light_buffer;
+    std::vector<Morpho::Vulkan::DescriptorSet> light_descriptor_sets;
+    Morpho::Vulkan::DescriptorSet shadow_map_visualization_descriptor_set[frame_in_flight_count];
+    Morpho::Vulkan::Buffer mesh_uniforms;
+    std::vector<Morpho::Vulkan::DescriptorSet> mesh_descriptor_sets;
+    // TODO: temp solution just to keep light code consistent.
+    Morpho::Vulkan::Buffer cube_map_face_buffer;
+    std::vector<Morpho::Vulkan::DescriptorSet> cube_map_face_descriptor_sets;
+    uint32_t frames_total = 0;
+    uint32_t frame_index = 0;
+    std::vector<Light> lights;
 
     bool is_first_update = true;
     Camera camera;
@@ -192,48 +222,42 @@ private:
         const tinygltf::Node& node,
         Morpho::Vulkan::CommandBuffer& cmd,
         const Morpho::Vulkan::Pipeline& normal_pipeline,
-        const Morpho::Vulkan::Pipeline& double_sided_pipeline,
-        glm::mat4 parent_to_world
+        const Morpho::Vulkan::Pipeline& double_sided_pipeline
     );
     void draw_mesh(
         const tinygltf::Model& model,
-        const tinygltf::Mesh& mesh,
+        uint32_t mesh_index,
         Morpho::Vulkan::CommandBuffer& cmd,
         const Morpho::Vulkan::Pipeline& normal_pipeline,
         const Morpho::Vulkan::Pipeline& double_sided_pipeline
     );
     void draw_primitive(
         const tinygltf::Model& model,
-        const tinygltf::Primitive& primitive,
+        uint32_t mesh_index,
+        uint32_t primitive_index,
         Morpho::Vulkan::CommandBuffer& cmd,
         const Morpho::Vulkan::Pipeline& normal_pipeline,
         const Morpho::Vulkan::Pipeline& double_sided_pipeline
     );
-    void draw_depth_image(Morpho::Vulkan::CommandBuffer &cmd, Morpho::Vulkan::Texture depth_map);
-    void render_depth_pass(
+    void render_depth_pass_for_spot_light(
         Morpho::Vulkan::CommandBuffer& cmd,
-        const Morpho::Vulkan::Texture& shadow_map,
-        const SpotLight& spot_ligt
+        const Light& spot_ligt
     );
-    void render_depth_pass(
+    void render_depth_pass_for_point_light(
         Morpho::Vulkan::CommandBuffer& cmd,
-        const Morpho::Vulkan::Texture& shadow_map,
-        const PointLight& point_light
+        const Light& point_light
     );
     void render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd);
     void begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd);
-    void render_color_pass(
+    void render_color_pass_for_spotlight(
         Morpho::Vulkan::CommandBuffer& cmd,
-        Morpho::Vulkan::Texture shadow_map,
-        const SpotLight& spot_light
+        const Light& light
     );
-    void render_color_pass(
+    void render_color_pass_for_point_light(
         Morpho::Vulkan::CommandBuffer& cmd,
-        Morpho::Vulkan::Texture shadow_map,
-        const PointLight& point_light
+        const Light& light
     );
-    void setup_spot_light_uniforms(Morpho::Vulkan::CommandBuffer& cmd, const SpotLight& spot_light);
-    void setup_point_light_uniforms(Morpho::Vulkan::CommandBuffer& cmd, const PointLight& point_light);
+    void add_light(Light light);
     Morpho::Vulkan::Shader load_shader(const std::string& path);
     static void process_keyboard_input(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void process_cursor_position(GLFWwindow* window, double xpos, double ypos);

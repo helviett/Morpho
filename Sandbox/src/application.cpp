@@ -1,16 +1,77 @@
 #include "application.hpp"
 #include <fstream>
+#include <glm/fwd.hpp>
 #include <stb_image.h>
 #include <glm/gtc/matrix_access.hpp>
 #include <glm/gtx/string_cast.hpp>
 #include <glm/gtc/type_ptr.hpp>
+#include <vector>
 #include <vulkan/vulkan_core.h>
+#include "common/utils.hpp"
 #include "math.hpp"
+#include "vulkan/context.hpp"
+#include "vulkan/resources.hpp"
 
-namespace fs = std::filesystem;
+void traverse_node(
+    const tinygltf::Model& model,
+    const tinygltf::Node& node,
+    const glm::mat4& parent_to_world,
+    std::vector<glm::mat4>& transforms
+) {
+    glm::mat4 local_to_world = glm::mat4(1.0f);
+    if (node.matrix.size() == 16) {
+        auto& m = node.matrix;
+        local_to_world = glm::mat4(
+            m[0], m[1], m[2], m[3],
+            m[4], m[5], m[6], m[7],
+            m[8], m[9], m[10], m[11],
+            m[12], m[13], m[14], m[15]
+        );
+    } else {
+        if (node.translation.size() == 3) {
+            auto& t = node.translation;
+            local_to_world = glm::translate(
+                local_to_world,
+                glm::vec3(t[0], t[1], t[2])
+            );
+        }
+        if (node.rotation.size() == 4) {
+            auto& r = node.rotation;
+            auto q = glm::quat((float)r[3], (float)r[2], (float)r[1], (float)r[0]);
+            q = glm::make_quat(r.data());
+            local_to_world = local_to_world * glm::mat4(q);
+        }
+        if (node.scale.size() == 3) {
+            auto& s = node.scale;
+            local_to_world = glm::scale(
+                local_to_world,
+                glm::vec3(s[0], s[1], s[2])
+            );
+        }
+    }
+    local_to_world = parent_to_world * local_to_world;
+    if (node.mesh >= 0) {
+        transforms[node.mesh] = local_to_world;
+    }
+    for (const auto& child : node.children) {
+        traverse_node(model, model.nodes[child], local_to_world, transforms);
+    }
+}
 
-void Application::init()
-{
+void precalculate_transforms(
+    const tinygltf::Model& model,
+    std::vector<glm::mat4>& transforms
+) {
+    for (auto& scene : model.scenes) {
+        for (auto& node : scene.nodes) {
+            glm::mat4 local_to_world = glm::mat4(1.0f);
+            traverse_node(model, model.nodes[node], local_to_world, transforms);
+        }
+    }
+}
+
+void Application::init() {
+    z_prepass_shader = load_shader("./assets/shaders/z_prepass.vert.spv");
     gltf_depth_pass_vertex_shader = load_shader("./assets/shaders/gltf_depth_pass.vert.spv");
     gltf_spot_light_vertex_shader = load_shader("./assets/shaders/gltf_spot_light.vert.spv");
     gltf_point_light_vertex_shader = load_shader("./assets/shaders/gltf_point_light.vert.spv");
@@ -58,34 +119,51 @@ void Application::init()
         ).info()
     );
 
-    VkDescriptorSetLayoutBinding set0_bindings[16] = {};
-    VkDescriptorSetLayoutBinding set1_bindings[16] = {};
+    // globals
+    VkDescriptorSetLayoutBinding set0_bindings[4] = {};
+    // light
+    VkDescriptorSetLayoutBinding set1_bindings[4] = {};
+    // material
+    VkDescriptorSetLayoutBinding set2_bindings[4] = {};
+    // object
+    VkDescriptorSetLayoutBinding set3_bindings[1] = {};
     PipelineLayoutInfo pipeline_layout_info{};
     pipeline_layout_info.set_binding_infos[0] = set0_bindings;
     pipeline_layout_info.set_binding_infos[1] = set1_bindings;
+    pipeline_layout_info.set_binding_infos[2] = set2_bindings;
+    pipeline_layout_info.set_binding_infos[3] = set3_bindings;
     {
-        for (uint32_t i = 0; i < 3; i++) {
-            set0_bindings[i] = { i, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, };
-        }
-        pipeline_layout_info.set_binding_count[0] = 3;
-
-        for (uint32_t i = 0; i < 3; i++) {
-            set1_bindings[i] = { i, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, };
-        }
-
-        for (uint32_t i = 3; i < 6; i++) {
-            set1_bindings[i] = { i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
-        }
-        pipeline_layout_info.set_binding_count[1] = 6;
-        light_pipeline_layout = context->create_pipeline_layout(pipeline_layout_info);
-    }
-    {
+        VkShaderStageFlags vertex_and_fragment = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
         pipeline_layout_info.set_binding_count[0] = 2;
-        pipeline_layout_info.set_binding_count[1] = 0;
-        pipeline_layout_info.set_binding_infos[1] = nullptr;
-        set0_bindings[0] = { 0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
-        set0_bindings[1] = { 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, };
-        shadow_map_debug_pipeline_layout = context->create_pipeline_layout(pipeline_layout_info);
+        pipeline_layout_info.max_descriptor_set_counts[0] = frame_in_flight_count;
+        // View, Projection.
+        set0_bindings[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
+        // Camera position.
+        set0_bindings[1] = { 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
+        pipeline_layout_info.set_binding_count[1] = 3;
+        // TODO: there should be a better way..
+        const uint32_t cube_texture_array_count = 6;
+        // + frame_in_flight_count for debug DS.
+        pipeline_layout_info.max_descriptor_set_counts[1] = max_light_count * frame_in_flight_count
+            * (1 + cube_texture_array_count) + frame_in_flight_count;
+        // Light's View and Projection.
+        set1_bindings[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
+        // Light structure.
+        set1_bindings[1] = { 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
+        // Shadow map.
+        set1_bindings[2] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
+        pipeline_layout_info.set_binding_count[2] = 3;
+        pipeline_layout_info.max_descriptor_set_counts[2] = model.materials.size();
+        // Material data.
+        set2_bindings[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
+        // Base color texture.
+        set2_bindings[1] = { 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
+        // Normal map.
+        set2_bindings[2] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
+        pipeline_layout_info.set_binding_count[3] = 1;
+        pipeline_layout_info.max_descriptor_set_counts[3] = model.meshes.size();
+        set3_bindings[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
+        light_pipeline_layout = context->create_pipeline_layout(pipeline_layout_info);
     }
 
     PipelineInfo pipeline_info{};
@@ -158,7 +236,7 @@ void Application::init()
     {
         // Z prepass.
         pipeline_info.shader_count = 1;
-        pipeline_info.shaders[0] = gltf_depth_pass_vertex_shader;
+        pipeline_info.shaders[0] = z_prepass_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
         z_prepass_pipeline = context->create_pipeline(pipeline_info);
         pipeline_info.cull_mode = VK_CULL_MODE_NONE;
@@ -195,7 +273,7 @@ void Application::init()
         pipeline_info.shaders[0] = full_screen_triangle_shader;
         pipeline_info.shaders[1] = shadow_map_spot_light_fragment_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
-        pipeline_info.pipeline_layout = &shadow_map_debug_pipeline_layout;
+        pipeline_info.pipeline_layout = &light_pipeline_layout;
         shadow_map_visualization_pipeline = context->create_pipeline(pipeline_info);
     }
 
@@ -205,6 +283,178 @@ void Application::init()
         VK_FILTER_LINEAR,
         VK_TRUE,
         VK_COMPARE_OP_LESS
+    );
+
+    std::vector<VkBufferUsageFlags> buffer_usages(model.buffers.size(), 0);
+    buffers.resize(model.buffers.size());
+    for (auto& mesh : model.meshes) {
+        for (auto& primitive : mesh.primitives) {
+            if (primitive.indices >= 0) {
+                auto buffer_view_index = model.accessors[primitive.indices].bufferView;
+                auto buffer_index = model.bufferViews[buffer_view_index].buffer;
+                buffer_usages[buffer_index] |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+            }
+            for (auto& key_value : primitive.attributes) {
+                auto buffer_view_index = model.accessors[key_value.second].bufferView;
+                auto buffer_index = model.bufferViews[buffer_view_index].buffer;
+                buffer_usages[buffer_index] |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
+            }
+        }
+    }
+    for (uint32_t i = 0; i < model.buffers.size(); i++) {
+        auto buffer_size = (VkDeviceSize)model.buffers[i].data.size();
+        auto staging_buffer = context->acquire_staging_buffer(
+            buffer_size,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_ONLY,
+            model.buffers[i].data.data(),
+            buffer_size
+        );
+        buffers[i] = context->acquire_buffer(
+            buffer_size,
+            VK_BUFFER_USAGE_TRANSFER_DST_BIT | buffer_usages[i],
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+    }
+    white_texture = context->create_texture(
+        { 1, 1, 1 },
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        VMA_MEMORY_USAGE_GPU_ONLY
+    );
+    textures.resize(model.textures.size());
+    for (uint32_t i = 0; i < model.textures.size(); i++) {
+        auto& texture = model.textures[i];
+        auto gltf_image = model.images[texture.source];
+        assert(gltf_image.component == 4);
+        auto image_size = (VkDeviceSize)(gltf_image.width * gltf_image.height * gltf_image.component * (gltf_image.bits / 8));
+        VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
+        auto staging_image_buffer = context->acquire_staging_buffer(
+            image_size,
+            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            VMA_MEMORY_USAGE_CPU_ONLY,
+            gltf_image.image.data(),
+            image_size
+        );
+        textures[i] = context->create_texture(
+            { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 },
+            format,
+            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+            VMA_MEMORY_USAGE_GPU_ONLY
+        );
+    }
+    samplers.resize(model.samplers.size());
+    for (uint32_t i = 0; i < model.samplers.size(); i++) {
+        auto gltf_sampler = model.samplers[i];
+        samplers[i] = context->acquire_sampler(
+            gltf_to_sampler_address_mode(gltf_sampler.wrapT),
+            gltf_to_sampler_address_mode(gltf_sampler.wrapR),
+            gltf_to_sampler_address_mode(gltf_sampler.wrapS),
+            gltf_to_filter(gltf_sampler.minFilter),
+            gltf_to_filter(gltf_sampler.magFilter)
+        );
+    }
+    const uint64_t alignment = context->get_uniform_buffer_alignment();
+    const uint64_t globals_size = Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment) * 2;
+    globals_buffer = context->acquire_buffer(
+        frame_in_flight_count * globals_size,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    for (uint32_t i = 0; i < frame_in_flight_count; i++) {
+        global_descriptor_sets[i] = context->create_descriptor_set(light_pipeline_layout, 0);
+        DescriptorSetUpdateRequest requests[2]{};
+        requests[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
+        requests[0].descriptor_info.buffer_info = { globals_buffer, i * globals_size, sizeof(ViewProjection), };
+        requests[1] = { 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
+        requests[1].descriptor_info.buffer_info =
+            { globals_buffer, i * globals_size + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment), sizeof(glm::mat4), };
+        context->update_descriptor_set(
+            global_descriptor_sets[i],
+            requests,
+            2
+        );
+    }
+    for (uint32_t i = 0; i < frame_in_flight_count; i++) {
+        shadow_map_visualization_descriptor_set[i] = context->create_descriptor_set(light_pipeline_layout, 1);
+    }
+    material_descriptor_sets.resize(model.materials.size());
+    std::vector<MaterialParameters> material_parameters(model.materials.size());
+    material_buffer = context->acquire_buffer(
+        model.materials.size() * sizeof(MaterialParameters),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    for (uint32_t material_index = 0; material_index < model.materials.size(); material_index++) {
+        auto& material = model.materials[material_index];
+        material_descriptor_sets[material_index] = context->create_descriptor_set(light_pipeline_layout, 2);
+        uint64_t offset = material_index * sizeof(MaterialParameters);
+        DescriptorSetUpdateRequest requests[3]{};
+        requests[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
+        requests[0].descriptor_info.buffer_info =
+            { material_buffer, offset, sizeof(glm::vec4), };
+        auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
+        auto base_color_texture = base_color_texture_index < 0 ? white_texture : textures[base_color_texture_index];
+        auto base_color_sampler_index = base_color_texture_index < 0
+            ? -1 : model.textures[base_color_texture_index].sampler;
+        auto base_color_sampler = base_color_sampler_index < 0 ? default_sampler : samplers[base_color_sampler_index];
+        requests[1] = { 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, };
+        requests[1].descriptor_info.texture_info = { base_color_texture, base_color_sampler, };
+        auto normal_texture_index = material.normalTexture.index;
+        auto normal_texture = normal_texture_index < 0 ? white_texture : textures[normal_texture_index];
+        auto normal_texture_sampler_index = normal_texture_index < 0 ? -1 : model.textures[normal_texture_index].sampler;
+        auto normal_texture_sampler = normal_texture_sampler_index < 0
+            ? default_sampler : samplers[normal_texture_sampler_index];
+        requests[2] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, };
+        requests[2].descriptor_info.texture_info = { normal_texture, normal_texture_sampler, };
+        context->update_descriptor_set(
+            material_descriptor_sets[material_index],
+            requests,
+            3
+        );
+        auto base_color_factor = glm::vec4(
+            material.pbrMetallicRoughness.baseColorFactor[0],
+            material.pbrMetallicRoughness.baseColorFactor[1],
+            material.pbrMetallicRoughness.baseColorFactor[2],
+            material.pbrMetallicRoughness.baseColorFactor[3]
+        );
+        material_parameters[material_index].base_color_factor = base_color_factor;
+    }
+    context->update_buffer(
+        material_buffer,
+        0,
+        material_parameters.data(),
+        material_parameters.size() * sizeof(MaterialParameters)
+    );
+
+    mesh_descriptor_sets.resize(model.meshes.size());
+    std::vector<glm::mat4> transforms(model.meshes.size());
+    precalculate_transforms(model, transforms);
+    mesh_uniforms = context->acquire_buffer(
+        model.meshes.size() * Morpho::round_up_to_alignment(sizeof(glm::mat4), alignment),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU,
+        transforms.data(),
+        transforms.size() * Morpho::round_up_to_alignment(sizeof(glm::mat4), alignment)
+    );
+    for (uint32_t mesh_index = 0; mesh_index < model.meshes.size(); mesh_index++) {
+        mesh_descriptor_sets[mesh_index] = context->create_descriptor_set(light_pipeline_layout, 3);
+        DescriptorSetUpdateRequest request = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
+        uint64_t offset = mesh_index * Morpho::round_up_to_alignment(sizeof(glm::mat4), alignment);
+        request.descriptor_info.buffer_info = { mesh_uniforms, offset, sizeof(glm::mat4), };
+        context->update_descriptor_set(mesh_descriptor_sets[mesh_index], &request, 1);
+    }
+    auto light_uniforms_max_size = Morpho::round_up_to_alignment(sizeof(Light::LightData), alignment)
+        + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
+    light_buffer = context->acquire_buffer(
+        max_light_count * frame_in_flight_count * light_uniforms_max_size,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
+    );
+    cube_map_face_buffer = context->acquire_buffer(
+        max_light_count * frame_in_flight_count * light_uniforms_max_size * 6,
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        VMA_MEMORY_USAGE_CPU_TO_GPU
     );
     auto extent = context->get_swapchain_extent();
     depth_buffer = context->create_texture(
@@ -220,7 +470,7 @@ void Application::run()
     init_window();
     initialize_key_map();
     context->init(window);
-    context->set_frame_context_count(2);
+    context->set_frame_context_count(frame_in_flight_count);
     auto swapchain_extent = context->get_swapchain_extent();
     camera = Camera(
         0.0f,
@@ -270,81 +520,107 @@ void Application::set_graphics_context(Morpho::Vulkan::Context* context) {
 
 void Application::render_frame() {
     context->begin_frame();
+    bool use_debug_pipeline = input.is_key_pressed(Key::LEFT_CONTROL) || input.is_key_pressed(Key::LEFT_ALT);
+    if (use_debug_pipeline) {
+        auto light_type = input.is_key_pressed(Key::LEFT_CONTROL) ? LightType::SpotLight : LightType::PointLight;
+        Key number_pressed = Key::UNDEFINED;
+        for (uint32_t i = 0; i <= 9; i++) {
+            auto key = (Key)((int)Key::NUMBER0 + i);
+            if (input.is_key_pressed(key)) {
+                number_pressed = key;
+                break;
+            }
+        }
+        uint32_t index_to_search = (int)number_pressed - (int)Key::NUMBER0;
+        if (
+            number_pressed != Key::UNDEFINED
+            && (
+                light_type == LightType::PointLight && index_to_search < 6
+                || light_type == LightType::SpotLight && index_to_search < lights.size()
+            )
+        ) {
+            uint32_t current_light_index = 0;
+            int32_t light_index = -1;
+            for (int i = 0; i < lights.size(); i++) {
+                if (lights[i].light_type != light_type) {
+                    continue;
+                }
+                if (light_type == LightType::PointLight || current_light_index == index_to_search) {
+                    light_index = i;
+                    break;
+                }
+                current_light_index++;
+            }
+            const auto& light = lights[light_index];
+            auto shadow_map = light_type == LightType::PointLight ? light.views[index_to_search] : light.shadow_map;
+            Morpho::Vulkan::DescriptorSetUpdateRequest requests[2];
+            requests[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER };
+            uint64_t alignment = context->get_uniform_buffer_alignment();
+            uint32_t light_stride = Morpho::round_up_to_alignment(sizeof(Light::LightData), alignment)
+                + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
+            uint64_t offset = light.descriptor_set_start_index * light_stride
+                + frame_index * light_stride;
+            requests[0].descriptor_info.buffer_info = { light_buffer, offset, sizeof(ViewProjection) };
+            requests[1] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER };
+            requests[1].descriptor_info.texture_info = { shadow_map, default_sampler };
+            context->update_descriptor_set(shadow_map_visualization_descriptor_set[frame_index], requests, 2);
+        } else {
+            use_debug_pipeline = false;
+        }
+    }
     auto cmd = context->acquire_command_buffer();
     if (is_first_update) {
         initialize_static_resources(cmd);
         is_first_update = false;
     }
-    for (uint32_t i = 0; i < spot_lights.size(); i++) {
-        render_depth_pass(cmd, shadow_maps[i], spot_lights[i]);
+    cmd.bind_descriptor_set(global_descriptor_sets[frame_index]);
+    for (uint32_t i = 0; i < lights.size(); i++) {
+        if (lights[i].light_type == LightType::SpotLight) {
+            render_depth_pass_for_spot_light(cmd, lights[i]);
+        }
     }
-    for (uint32_t i = 0; i < point_lights.size(); i++) {
-        render_depth_pass(cmd, shadow_maps[spot_lights.size() + i], point_lights[i]);
+    for (uint32_t i = 0; i < lights.size(); i++) {
+        if (lights[i].light_type == LightType::PointLight) {
+            render_depth_pass_for_point_light(cmd, lights[i]);
+        }
     }
     begin_color_pass(cmd);
-    render_z_prepass(cmd);
-    if (input.is_key_pressed(Key::LEFT_CONTROL)) {
-        for (int i = 0; i < spot_lights.size(); i++) {
-            if (i > 9) {
-                break;
-            }
-            auto key = (Key)((int)Key::NUMBER0 + i);
-            if (input.is_key_pressed(key)) {
-                draw_depth_image(cmd, shadow_maps[i]);
-            }
-        }
-    } else if (input.is_key_pressed(Key::LEFT_ALT) && !point_lights.empty()) {
-        auto& pl = point_lights[0];
-        for (int i = 0; i < 6; i++) {
-            auto key = (Key)((int)Key::NUMBER0 + i);
-            if (input.is_key_pressed(key)) {
-                auto sm = shadow_maps[spot_lights.size()];
-                auto tiv = context->create_temporary_texture_view(
-                    sm,
-                    i,
-                    1
-                );
-                draw_depth_image(cmd, tiv);
-            }
-        }
+    if (use_debug_pipeline) {
+        cmd.bind_descriptor_set(shadow_map_visualization_descriptor_set[frame_index]);
+        cmd.bind_pipeline(shadow_map_visualization_pipeline);
+        cmd.draw(3, 1, 0, 0);
     } else {
-        for (int i = 0; i < spot_lights.size(); i++) {
-            render_color_pass(cmd, shadow_maps[i], spot_lights[i]);
+        render_z_prepass(cmd);
+        for (int i = 0; i < lights.size(); i++) {
+            if (lights[i].light_type == LightType::SpotLight) {
+                render_color_pass_for_spotlight(cmd, lights[i]);
+            }
         }
-        for (int i = 0; i < point_lights.size(); i++) {
-            render_color_pass(cmd, shadow_maps[spot_lights.size() + i], point_lights[i]);
+        for (int i = 0; i < lights.size(); i++) {
+            if (lights[i].light_type == LightType::PointLight) {
+                render_color_pass_for_point_light(cmd, lights[i]);
+            }
         }
     }
     cmd.end_render_pass(); // color pass
     context->submit(cmd);
     context->end_frame();
+    frames_total++;
+    frame_index = frames_total % frame_in_flight_count;
 }
 
-void Application::render_depth_pass(
+void Application::render_depth_pass_for_spot_light(
     Morpho::Vulkan::CommandBuffer& cmd,
-    const Morpho::Vulkan::Texture& shadow_map,
-    const SpotLight& spot_light
+    const Light& light
 ) {
-    cmd.reset();
     auto extent = context->get_swapchain_extent();
     cmd.set_viewport({ 0, 0, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
     cmd.set_scissor({ {0, 0}, extent });
-    ViewProjection vp;
-    vp.view = look_at(spot_light.position, spot_light.position + 10.0f * spot_light.direction, world_up);
-    vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
-    auto vp_buffer = context->acquire_staging_buffer(
-        sizeof(ViewProjection),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY,
-        &vp,
-        sizeof(ViewProjection)
-    );
-    cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
-    cmd.set_uniform_buffer(0, 2, vp_buffer, 0, sizeof(ViewProjection));
+    cmd.bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index]);
     auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
         .layout(depth_pass_layout)
         .extent(extent)
-        .attachment(shadow_map)
+        .attachment(light.shadow_map)
         .info()
     );
     cmd.begin_render_pass(
@@ -359,7 +635,7 @@ void Application::render_depth_pass(
     draw_model(model, cmd, depth_pass_pipeline_ccw, depth_pass_pipeline_ccw_double_sided);
     cmd.end_render_pass();
     cmd.image_barrier(
-        shadow_map,
+        light.shadow_map,
         VK_IMAGE_ASPECT_DEPTH_BIT,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
@@ -371,12 +647,11 @@ void Application::render_depth_pass(
 }
 
 
-void Application::render_depth_pass(
+void Application::render_depth_pass_for_point_light(
     Morpho::Vulkan::CommandBuffer& cmd,
-    const Morpho::Vulkan::Texture& shadow_map,
-    const PointLight& point_light
+    const Light& light
 ) {
-    cmd.reset();
+    const auto& point_light = light.light_data.point_light;
     auto extent = context->get_swapchain_extent();
     extent.width = extent.height = std::max(extent.width, extent.height);
     cmd.set_viewport({ 0, 0, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
@@ -393,35 +668,23 @@ void Application::render_depth_pass(
         glm::mat4(x, -y, z, w),
         glm::mat4(-x, -y, -z, w),
     };
-    glm::vec3 dirs[6] = {
-        x, -x, y, -y, z, -z,
-    };
     ViewProjection vp;
     vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
+    uint64_t alignment = context->get_uniform_buffer_alignment();
+    uint32_t light_stride = Morpho::round_up_to_alignment(sizeof(Light::LightData), alignment)
+        + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
     for (uint32_t i = 0; i < 6; i++) {
         auto rot = faces[i];
         auto translate = glm::translate(glm::mat4(1.0f), point_light.position);
         auto combined = translate * rot;
         vp.view = glm::inverse(combined);
-        auto det = glm::determinant(vp.view);
-        auto vp_buffer = context->acquire_staging_buffer(
-            sizeof(ViewProjection),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VMA_MEMORY_USAGE_CPU_ONLY,
-            &vp,
-            sizeof(ViewProjection)
-        );
-        cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
-        cmd.set_uniform_buffer(0, 2, vp_buffer, 0, sizeof(ViewProjection));
-        auto shadow_map_view = context->create_temporary_texture_view(
-            shadow_map,
-            i,
-            1
-        );
+        uint32_t offset = frame_in_flight_count * light.descriptor_set_start_index * 6 * light_stride;
+        offset += frame_index * 6 * light_stride + i * light_stride;
+        context->update_buffer(cube_map_face_buffer, offset, &vp, sizeof(ViewProjection));
         auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
             .layout(depth_pass_layout)
             .extent(extent)
-            .attachment(shadow_map_view)
+            .attachment(light.views[i])
             .info()
         );
         cmd.begin_render_pass(
@@ -433,11 +696,13 @@ void Application::render_depth_pass(
                 {0.0f, 0.0f, 0.0f, 0.0f},
             }
         );
+        uint32_t ds_index = frame_in_flight_count * light.descriptor_set_start_index * 6 + frame_index * 6 + i;
+        cmd.bind_descriptor_set(cube_map_face_descriptor_sets[ds_index]);
         draw_model(model, cmd, depth_pass_pipeline_cw, depth_pass_pipeline_cw_double_sided);
         cmd.end_render_pass();
     }
     cmd.image_barrier(
-        shadow_map,
+        light.shadow_map,
         VK_IMAGE_ASPECT_DEPTH_BIT,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
@@ -450,26 +715,13 @@ void Application::render_depth_pass(
 }
 
 void Application::render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd) {
-    cmd.reset();
     auto extent = context->get_swapchain_extent();
     cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
     cmd.set_scissor({ {0, 0}, extent });
-    ViewProjection vp;
-    vp.view = camera.get_view();
-    vp.proj = camera.get_projection();
-    auto vp_buffer = context->acquire_staging_buffer(
-        sizeof(ViewProjection),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY,
-        &vp,
-        sizeof(ViewProjection)
-    );
-    cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
     draw_model(model, cmd, z_prepass_pipeline, z_prepass_pipeline_double_sided);
 }
 
 void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
-    cmd.reset();
     auto extent = context->get_swapchain_extent();
     cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
     cmd.set_scissor({ {0, 0}, extent });
@@ -491,86 +743,20 @@ void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
     );
 }
 
-void Application::render_color_pass(
+void Application::render_color_pass_for_point_light(
     Morpho::Vulkan::CommandBuffer& cmd,
-    Morpho::Vulkan::Texture shadow_map,
-    const PointLight& point_light
+    const Light& light
 ) {
-    setup_point_light_uniforms(cmd, point_light);
-    ViewProjection vp;
-    vp.view = camera.get_view();
-    vp.proj = camera.get_projection();
-    auto vp_buffer = context->acquire_staging_buffer(
-        sizeof(ViewProjection),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY,
-        &vp,
-        sizeof(ViewProjection)
-    );
-    cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
-    VkExtent2D extent = context->get_swapchain_extent();
-    extent.width = extent.height = std::max(extent.width, extent.height);
-    vp.view = glm::translate(glm::mat4(1.0f), -point_light.position);
-    vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
-    auto lvp_buffer = context->acquire_staging_buffer(
-        sizeof(ViewProjection),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY,
-        &vp,
-        sizeof(ViewProjection)
-    );
-    cmd.set_uniform_buffer(0, 2, lvp_buffer, 0, sizeof(ViewProjection));
-    cmd.set_combined_image_sampler(1, 5, shadow_map, shadow_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    cmd.bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index]);
     draw_model(model, cmd, pointlight_pipeline, pointlight_pipeline_double_sided);
 }
 
-void Application::render_color_pass(
+void Application::render_color_pass_for_spotlight(
     Morpho::Vulkan::CommandBuffer& cmd,
-    Morpho::Vulkan::Texture shadow_map,
-    const SpotLight& spot_light
+    const Light& light
 ) {
-    setup_spot_light_uniforms(cmd, spot_light);
-    ViewProjection vp;
-    vp.view = camera.get_view();
-    vp.proj = camera.get_projection();
-    auto vp_buffer = context->acquire_staging_buffer(
-        sizeof(ViewProjection),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY,
-        &vp,
-        sizeof(ViewProjection)
-    );
-    cmd.set_uniform_buffer(0, 0, vp_buffer, 0, sizeof(ViewProjection));
-    VkExtent2D extent = context->get_swapchain_extent();
-    ViewProjection lvp;
-    lvp.view = look_at(spot_light.position, spot_light.position + 10.0f * spot_light.direction, world_up);
-    lvp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
-    auto lvp_buffer = context->acquire_staging_buffer(
-        sizeof(ViewProjection),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY,
-        &lvp,
-        sizeof(ViewProjection)
-    );
-    cmd.set_uniform_buffer(0, 2, lvp_buffer, 0, sizeof(ViewProjection));
-    cmd.set_combined_image_sampler(1, 5, shadow_map, shadow_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
+    cmd.bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index]);
     draw_model(model, cmd, spotlight_pipeline, spotlight_pipeline_double_sided);
-}
-
-void Application::draw_depth_image(Morpho::Vulkan::CommandBuffer& cmd, Morpho::Vulkan::Texture depth_map) {
-    cmd.reset();
-    cmd.bind_pipeline(shadow_map_visualization_pipeline);
-    cmd.set_combined_image_sampler(0, 0, depth_map, default_sampler, VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL);
-    float projection_params[2] = { 0.01f, 10.0f, };
-    auto projection_params_buffer = context->acquire_staging_buffer(
-        sizeof(projection_params),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU,
-        &projection_params,
-        sizeof(projection_params)
-    );
-    cmd.set_uniform_buffer(0, 1, projection_params_buffer, 0, sizeof(projection_params));
-    cmd.draw(3, 1, 0, 0);
 }
 
 std::vector<char> Application::read_file(const std::string& filename) {
@@ -589,12 +775,6 @@ std::vector<char> Application::read_file(const std::string& filename) {
 
 void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd) {
     uint32_t white_pixel = std::numeric_limits<uint32_t>::max();
-    white_texture = context->create_texture(
-        { 1, 1, 1 },
-        VK_FORMAT_R8G8B8A8_UNORM,
-        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
     auto white_staging_buffer = context->acquire_staging_buffer(
         1 * 1 * 4,
         VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -789,6 +969,56 @@ Key Application::glfw_key_code_to_key(int code) {
     return code < 0 ? Key::UNDEFINED : key_map[code];
 }
 
+void Application::add_light(Light light) {
+    uint32_t light_index = lights.size();
+    light.descriptor_set_start_index = light_descriptor_sets.size();
+    uint32_t light_data_size = light.light_type == LightType::SpotLight ? sizeof(SpotLight) : sizeof(PointLight);
+    Morpho::Vulkan::DescriptorSetUpdateRequest requests[3]{};
+    requests[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
+    requests[1] = { 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
+    requests[2] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, };
+    requests[2].descriptor_info.texture_info = { light.shadow_map, shadow_sampler };
+    uint64_t alignment = context->get_uniform_buffer_alignment();
+    uint32_t light_stride = Morpho::round_up_to_alignment(sizeof(Light::LightData), alignment)
+        + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
+    uint32_t light_offset = light_index * frame_in_flight_count * light_stride;
+    for (uint32_t i = 0; i < frame_in_flight_count; i++) {
+        uint32_t uniforms_offset = light_offset + i * light_stride;
+        auto ds = context->create_descriptor_set(light_pipeline_layout, 1);
+        requests[0].descriptor_info.buffer_info = { light_buffer, uniforms_offset, sizeof(ViewProjection), };
+        uniforms_offset += Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
+        requests[1].descriptor_info.buffer_info = { light_buffer, uniforms_offset, light_data_size, };
+        context->update_buffer(light_buffer, uniforms_offset, &light.light_data, light_data_size);
+        context->update_descriptor_set(ds, requests, 3);
+        light_descriptor_sets.push_back(ds);
+    }
+    if (light.light_type == LightType::PointLight) {
+        for (uint32_t face_index = 0; face_index < 6; face_index++) {
+            light.views[face_index] = context->create_texture_view(
+                light.shadow_map,
+                face_index,
+                1
+            );
+        }
+        // TODO: just decouple spot and point lights into different arrays.
+        light_offset = light_index * frame_in_flight_count * 6 * light_stride;
+        for (uint32_t i = 0; i < frame_in_flight_count; i++) {
+            for (uint32_t face_index = 0; face_index < 6; face_index++) {
+                uint32_t uniforms_offset = light_offset + i * light_stride * 6 + face_index * light_stride;
+                auto ds = context->create_descriptor_set(light_pipeline_layout, 1);
+                requests[0].descriptor_info.buffer_info = { cube_map_face_buffer, uniforms_offset, sizeof(ViewProjection), };
+                uniforms_offset += Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
+                requests[1].descriptor_info.buffer_info = { cube_map_face_buffer, uniforms_offset, light_data_size, };
+                requests[2].descriptor_info.texture_info = { light.views[face_index], shadow_sampler };
+                context->update_buffer(cube_map_face_buffer, uniforms_offset, &light.light_data, light_data_size);
+                context->update_descriptor_set(ds, requests, 3);
+                cube_map_face_descriptor_sets.push_back(ds);
+            }
+        }
+    }
+    lights.push_back(light);
+}
+
 void Application::update(float delta) {
     glm::vec2 mouse_position(0, 0);
     input.get_mouse_position(&mouse_position.x, &mouse_position.y);
@@ -827,7 +1057,8 @@ void Application::update(float delta) {
     }
     auto extent = context->get_swapchain_extent();
     if (input.was_key_pressed(Key::F)) {
-        spot_lights.push_back(SpotLight(
+        assert(this->light_descriptor_sets.size() < max_light_count);
+        SpotLight light_data = SpotLight(
             camera.get_position(),
             camera.get_forward(),
             glm::vec3(1.0f, 0.0f, 0.0f),
@@ -835,25 +1066,29 @@ void Application::update(float delta) {
             3.0f,
             cos(glm::radians(17.5f)),
             cos(glm::radians(12.5f))
-        ));
+        );
         auto shadow_map = context->create_texture(
             { extent.width, extent.height, 1 },
             VK_FORMAT_D16_UNORM,
             VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
             VMA_MEMORY_USAGE_GPU_ONLY
         );
-        shadow_maps.insert(shadow_maps.begin() + (spot_lights.size() - 1), shadow_map);
+        Light light{};
+        light.light_type = LightType::SpotLight;
+        light.light_data.spot_light = light_data;
+        light.shadow_map = shadow_map;
+        add_light(light);
     }
-    if (input.was_key_pressed(Key::G) && point_lights.size() == 0) {
-        point_lights.push_back(PointLight(
+    if (input.was_key_pressed(Key::G) && lights.size() == 0) {
+        auto light_data = PointLight(
             camera.get_position(),
             glm::vec3(1.0f),
             15.0f,
             2.0f
-        ));
+        );
         auto face_extent = extent;
         face_extent.width = face_extent.height = std::max(face_extent.width, face_extent.height);
-	auto shadow_map = context->create_texture(
+        auto shadow_map = context->create_texture(
            { face_extent.width, face_extent.height, 1 },
            VK_FORMAT_D16_UNORM,
            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -861,19 +1096,36 @@ void Application::update(float delta) {
            6,
            VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT
         );
-        shadow_maps.push_back(shadow_map);
+        Light light{};
+        light.light_type = LightType::PointLight;
+        light.light_data.point_light = light_data;
+        light.shadow_map = shadow_map;
+        add_light(light);
     }
-    if (input.was_key_pressed(Key::P) && !point_lights.empty()) {
-        point_lights[0].position = camera.get_position();
+    // For now just update position of lights every frame.
+    uint64_t alignment = context->get_uniform_buffer_alignment();
+    uint32_t light_stride = Morpho::round_up_to_alignment(sizeof(Light::LightData), alignment)
+        + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
+    for (uint32_t light_index = 0; light_index < lights.size(); light_index++) {
+        uint32_t offset = light_index * frame_in_flight_count * light_stride;
+        offset += light_stride * frame_index;
+        ViewProjection vp;
+        VkExtent2D extent = context->get_swapchain_extent();
+        if (lights[light_index].light_type == LightType::PointLight) {
+            extent.width = extent.height = std::max(extent.width, extent.height);
+            vp.view = glm::translate(glm::mat4(1.0f), -lights[light_index].light_data.point_light.position);
+        } else if (lights[light_index].light_type == LightType::SpotLight) {
+            auto& spot_light = lights[light_index].light_data.spot_light;
+            vp.view = look_at(spot_light.position, spot_light.position + 10.0f * spot_light.direction, world_up);
+        }
+        vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
+        context->update_buffer(light_buffer, offset, &vp, sizeof(ViewProjection));
     }
-    if (point_lights.size() > 0 && input.was_key_pressed(Key::G)) {
-        point_lights[0].position = camera.get_position();
-    }
-    if (spot_lights.size() > 0) {
-        spot_lights[0].position = camera.get_position();
-        spot_lights[0].direction = camera.get_forward();
-    }
-    frames++;
+    uint64_t globals_offset = frame_index * Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment) * 2;
+    ViewProjection vp;
+    vp.view = camera.get_view();
+    vp.proj = camera.get_projection();
+    context->update_buffer(globals_buffer, globals_offset, &vp, sizeof(ViewProjection));
 }
 
 bool Application::load_scene(std::filesystem::path file_path) {
@@ -920,11 +1172,6 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             model.buffers[i].data.data(),
             buffer_size
         );
-        buffers[i] = context->acquire_buffer(
-            buffer_size,
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT | buffer_usages[i],
-            VMA_MEMORY_USAGE_GPU_ONLY
-        );
         cmd.copy_buffer(staging_buffer, buffers[i], buffer_size);
         cmd.buffer_barrier(
             buffers[i],
@@ -951,14 +1198,8 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             gltf_image.image.data(),
             image_size
         );
-        auto image = context->create_texture(
-            { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 },
-            format,
-            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-            VMA_MEMORY_USAGE_GPU_ONLY
-        );
         cmd.image_barrier(
-            image,
+            textures[i],
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_IMAGE_LAYOUT_UNDEFINED,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -967,9 +1208,11 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             VK_PIPELINE_STAGE_TRANSFER_BIT,
             VK_ACCESS_TRANSFER_WRITE_BIT
         );
-        cmd.copy_buffer_to_image(staging_image_buffer, image, { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 });
+        cmd.copy_buffer_to_image(
+            staging_image_buffer, textures[i], { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 }
+        );
         cmd.image_barrier(
-            image,
+            textures[i],
             VK_IMAGE_ASPECT_COLOR_BIT,
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
             VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -977,18 +1220,6 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             VK_ACCESS_TRANSFER_WRITE_BIT,
             VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             VK_ACCESS_SHADER_READ_BIT
-        );
-        textures[i] = image;
-    }
-    samplers.resize(model.samplers.size());
-    for (uint32_t i = 0; i < model.samplers.size(); i++) {
-        auto gltf_sampler = model.samplers[i];
-        samplers[i] = context->acquire_sampler(
-            gltf_to_sampler_address_mode(gltf_sampler.wrapT),
-            gltf_to_sampler_address_mode(gltf_sampler.wrapR),
-            gltf_to_sampler_address_mode(gltf_sampler.wrapS),
-            gltf_to_filter(gltf_sampler.minFilter),
-            gltf_to_filter(gltf_sampler.magFilter)
         );
     }
 }
@@ -1014,7 +1245,7 @@ void Application::draw_scene(
     const Morpho::Vulkan::Pipeline& double_sided_pipeline
 ) {
     for (const auto node_index : scene.nodes) {
-        draw_node(model, model.nodes[node_index], cmd, normal_pipeline, double_sided_pipeline, glm::mat4(1.0f));
+        draw_node(model, model.nodes[node_index], cmd, normal_pipeline, double_sided_pipeline);
     }
 }
 
@@ -1023,76 +1254,37 @@ void Application::draw_node(
     const tinygltf::Node& node,
     Morpho::Vulkan::CommandBuffer& cmd,
     const Morpho::Vulkan::Pipeline& normal_pipeline,
-    const Morpho::Vulkan::Pipeline& double_sided_pipeline,
-    glm::mat4 parent_to_world
+    const Morpho::Vulkan::Pipeline& double_sided_pipeline
 ) {
-    glm::mat4 local_to_world = glm::mat4(1.0f);
-    if (node.matrix.size() == 16) {
-        auto& m = node.matrix;
-        local_to_world = glm::mat4(
-            m[0], m[1], m[2], m[3],
-            m[4], m[5], m[6], m[7],
-            m[8], m[9], m[10], m[11],
-            m[12], m[13], m[14], m[15]
-        );
-    } else {
-        if (node.translation.size() == 3) {
-            auto& t = node.translation;
-            local_to_world = glm::translate(
-                local_to_world,
-                glm::vec3(t[0], t[1], t[2])
-            );
-        }
-        if (node.rotation.size() == 4) {
-            auto& r = node.rotation;
-            auto q = glm::quat((float)r[3], (float)r[2], (float)r[1], (float)r[0]);
-            q = glm::make_quat(r.data());
-            local_to_world = local_to_world * glm::mat4(q);
-        }
-        if (node.scale.size() == 3) {
-            auto& s = node.scale;
-            local_to_world = glm::scale(
-                local_to_world,
-                glm::vec3(s[0], s[1], s[2])
-            );
-        }
-    }
-    local_to_world = parent_to_world * local_to_world;
     if (node.mesh >= 0) {
-        auto uniform_buffer = context->acquire_staging_buffer(
-            sizeof(glm::mat4),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VMA_MEMORY_USAGE_CPU_TO_GPU,
-            &local_to_world,
-            sizeof(glm::mat4)
-        );
-        cmd.set_uniform_buffer(0, 1, uniform_buffer, 0, sizeof(glm::mat4));
-        draw_mesh(model, model.meshes[node.mesh], cmd, normal_pipeline, double_sided_pipeline);
+        draw_mesh(model, node.mesh, cmd, normal_pipeline, double_sided_pipeline);
     }
     for (uint32_t i = 0; i < node.children.size(); i++) {
-        draw_node(model, model.nodes[node.children[i]], cmd, normal_pipeline, double_sided_pipeline, local_to_world);
+        draw_node(model, model.nodes[node.children[i]], cmd, normal_pipeline, double_sided_pipeline);
     }
 }
 
 void Application::draw_mesh(
     const tinygltf::Model& model,
-    const tinygltf::Mesh& mesh,
+    uint32_t mesh_index,
     Morpho::Vulkan::CommandBuffer& cmd,
     const Morpho::Vulkan::Pipeline& normal_pipeline,
     const Morpho::Vulkan::Pipeline& double_sided_pipeline
 ) {
-    for (auto& primitive : mesh.primitives) {
-        draw_primitive(model, primitive, cmd, normal_pipeline, double_sided_pipeline);
+    for (uint32_t i = 0; i < model.meshes[mesh_index].primitives.size(); i++) {
+        draw_primitive(model, mesh_index, i, cmd, normal_pipeline, double_sided_pipeline);
     }
 }
 
 void Application::draw_primitive(
     const tinygltf::Model& model,
-    const tinygltf::Primitive& primitive,
+    uint32_t mesh_index,
+    uint32_t primitive_index,
     Morpho::Vulkan::CommandBuffer& cmd,
     const Morpho::Vulkan::Pipeline& normal_pipeline,
     const Morpho::Vulkan::Pipeline& double_sided_pipeline
 ) {
+    auto& primitive = model.meshes[mesh_index].primitives[primitive_index];
     if (primitive.attributes.size() != 4) {
         return;
     }
@@ -1103,55 +1295,19 @@ void Application::draw_primitive(
     uint32_t current_binding = 0;
     if (primitive.material != current_material_index) {
         auto& material = model.materials[primitive.material];
-        VkVertexInputAttributeDescription attributes[Morpho::Vulkan::Limits::MAX_VERTEX_ATTRIBUTE_DESCRIPTION_COUNT];
-        VkVertexInputBindingDescription bindings[Morpho::Vulkan::Limits::MAX_VERTEX_INPUT_BINDING_COUNT];
-        uint32_t binding_count = 0;
-        uint32_t attribute_count = 0;
-        for (auto& key_value : primitive.attributes) {
-            auto& attribute_name = key_value.first;
-            auto accessor_index = key_value.second;
-            auto& accessor = model.accessors[accessor_index];
-            auto& buffer_view = model.bufferViews[accessor.bufferView];
-            auto location = attribute_name_to_location.find(attribute_name);
-            if (location == attribute_name_to_location.end()) {
-                continue;
-            }
-            auto binding = attribute_name_to_binding.find(attribute_name)->second;
-            attributes[location->second] = { current_binding, location->second, gltf_to_format(accessor.type, accessor.componentType), 0 };
-            bindings[binding] = { binding, (uint32_t)accessor.ByteStride(buffer_view), VK_VERTEX_INPUT_RATE_VERTEX };
-        }
-        // Base color texture.
-        auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
-        auto base_color_image = base_color_texture_index < 0 ? white_texture : textures[base_color_texture_index];
-        auto base_color_sampler_index = base_color_texture_index < 0 ? -1 : model.textures[base_color_texture_index].sampler;
-        auto base_color_sampler = base_color_sampler_index < 0 ? default_sampler : samplers[base_color_sampler_index];
-        cmd.set_combined_image_sampler(1, 3, base_color_image, base_color_sampler);
-        auto base_color_factor = glm::vec4(
-            material.pbrMetallicRoughness.baseColorFactor[0],
-            material.pbrMetallicRoughness.baseColorFactor[1],
-            material.pbrMetallicRoughness.baseColorFactor[2],
-            material.pbrMetallicRoughness.baseColorFactor[3]
-        );
-        auto base_color_factor_buffer = context->acquire_staging_buffer(
-            sizeof(base_color_factor),
-            VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-            VMA_MEMORY_USAGE_CPU_TO_GPU,
-            &base_color_factor,
-            sizeof(base_color_factor)
-        );
-        cmd.set_uniform_buffer(1, 0, base_color_factor_buffer, 0, sizeof(base_color_factor));
-        // Normal map.
-        auto normal_texture_index = material.normalTexture.index;
-        auto normal_texture_image_view = normal_texture_index < 0 ? white_texture : textures[normal_texture_index];
-        auto normal_texture_sampler_index = normal_texture_index < 0 ? -1 : model.textures[normal_texture_index].sampler;
-        auto normal_texture_sampler = normal_texture_sampler_index < 0 ? default_sampler : samplers[normal_texture_sampler_index];
-        cmd.set_combined_image_sampler(1, 4, normal_texture_image_view, normal_texture_sampler);
+        cmd.bind_descriptor_set(material_descriptor_sets[primitive.material]);
         auto& pipeline_to_bind = material.doubleSided ? double_sided_pipeline : normal_pipeline;
         if (current_material_index < 0 || currently_bound_pipeline.pipeline != pipeline_to_bind.pipeline) {
             cmd.bind_pipeline(pipeline_to_bind);
+            if (primitive_index != 0) {
+                cmd.bind_descriptor_set(mesh_descriptor_sets[mesh_index]);
+            }
             currently_bound_pipeline = pipeline_to_bind;
         }
         current_material_index = primitive.material;
+    }
+    if (primitive_index == 0) {
+        cmd.bind_descriptor_set(mesh_descriptor_sets[mesh_index]);
     }
     current_binding = 0;
     for (auto& key_value : primitive.attributes) {
@@ -1237,38 +1393,6 @@ VkSamplerAddressMode Application::gltf_to_sampler_address_mode(int address_mode)
         {TINYGLTF_TEXTURE_WRAP_MIRRORED_REPEAT, VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT},
     };
     return map.at(address_mode);
-}
-
-void Application::setup_spot_light_uniforms(Morpho::Vulkan::CommandBuffer& cmd, const SpotLight& spot_light) {
-    auto view_position = camera.get_position();
-    auto view_buffer = context->acquire_staging_buffer(
-        sizeof(view_position),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU,
-        &view_position,
-        sizeof(view_position)
-    );
-    cmd.set_uniform_buffer(1, 2, view_buffer, 0, sizeof(view_position));
-    auto spot_light_buffer = context->acquire_staging_buffer(
-        sizeof(spot_light),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU,
-        (void*)&spot_light,
-        sizeof(spot_light)
-    );
-    assert(spot_light.penumbra >= spot_light.umbra);
-    cmd.set_uniform_buffer(1, 1, spot_light_buffer, 0, sizeof(spot_light));
-}
-
-void Application::setup_point_light_uniforms(Morpho::Vulkan::CommandBuffer& cmd, const PointLight& point_light) {
-    auto point_light_buffer = context->acquire_staging_buffer(
-        sizeof(point_light),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU,
-        (void*)&point_light,
-        sizeof(point_light)
-    );
-    cmd.set_uniform_buffer(1, 1, point_light_buffer, 0, sizeof(point_light));
 }
 
 Morpho::Vulkan::Shader Application::load_shader(const std::string& path) {

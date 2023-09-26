@@ -1,18 +1,23 @@
 #version 450
 
+// set 0 -- globals
+// set 1 -- per light
+// set 2 -- per material
+// set 3 -- per draw
+
 layout(set = 0, binding = 0) uniform ViewProjectionBlock {
     mat4 view;
     mat4 proj;
 } vp;
 
-layout(set = 0, binding = 1) uniform ModelBlock {
-    mat4 t;
-} model;
-
-layout(set = 0, binding = 2) uniform LightViewPorjectionBlock {
+layout(set = 1, binding = 0) uniform LightViewPorjectionBlock {
     mat4 view;
     mat4 proj;
 } lvp;
+
+layout(set = 3, binding = 0) uniform ModelBlock {
+    mat4 t;
+} model;
 
 layout(location = 0) in vec3 in_position;
 layout(location = 1) in vec3 in_normal;
