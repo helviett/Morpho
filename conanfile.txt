@@ -1,9 +1,9 @@
 [requires]
 glfw/3.3.8
 glm/0.9.9.8
-stb/cci.20210910
+stb/cci.20220909
 vulkan-memory-allocator/3.0.1
-tinygltf/2.5.0
+tinygltf/2.8.13
 
 [generators]
 CMakeDeps

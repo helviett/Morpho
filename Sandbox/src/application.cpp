@@ -348,8 +348,8 @@ void Application::init() {
         auto gltf_sampler = model.samplers[i];
         samplers[i] = context->acquire_sampler(
             gltf_to_sampler_address_mode(gltf_sampler.wrapT),
-            gltf_to_sampler_address_mode(gltf_sampler.wrapR),
             gltf_to_sampler_address_mode(gltf_sampler.wrapS),
+            gltf_to_sampler_address_mode(gltf_sampler.wrapT),
             gltf_to_filter(gltf_sampler.minFilter),
             gltf_to_filter(gltf_sampler.magFilter)
         );

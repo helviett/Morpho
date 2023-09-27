@@ -4,7 +4,7 @@
 cmake_minimum_required (VERSION 3.15)
 
 
-set (CMAKE_CXX_STANDARD 17)
+set (CMAKE_CXX_STANDARD 20)
 add_compile_definitions(GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_XYZW_ONLY)
 
 set(SOURCE_FILES
