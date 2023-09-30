@@ -617,31 +617,45 @@ Pipeline Context::create_pipeline(PipelineInfo &pipeline_info) {
     return pipeline;
 }
 
-Buffer Context::acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) {
-    VkBufferCreateInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-    info.size = size;
-    info.usage = buffer_usage;
+Buffer Context::acquire_buffer(const BufferInfo& info) {
+    VkBufferCreateInfo buffer_create_info{};
+    buffer_create_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_create_info.size = info.size;
+    buffer_create_info.usage = info.usage;
 
     VmaAllocationCreateInfo allocation_create_info{};
-    allocation_create_info.usage = memory_usage;
+    allocation_create_info.usage = info.memory_usage;
+    switch (info.map) {
+        case BufferMap::PERSISTENTLY_MAPPED:
+            allocation_create_info.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+        case BufferMap::CAN_BE_MAPPED:
+            allocation_create_info.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+            break;
+        case BufferMap::NONE:
+            break;
+        default:
+            assert(false);
+            break;
+    }
 
     VkBuffer vk_buffer;
     VmaAllocation allocation;
     VmaAllocationInfo allocation_info;
 
-    vmaCreateBuffer(allocator, &info, &allocation_create_info, &vk_buffer, &allocation, &allocation_info);
+    vmaCreateBuffer(allocator, &buffer_create_info, &allocation_create_info, &vk_buffer, &allocation, &allocation_info);
 
     Buffer buffer{};
     buffer.buffer = vk_buffer;
     buffer.allocation = allocation;
-    buffer.allocation_info = allocation_info;
-    return buffer;
-}
+    buffer.mapped = (char*)allocation_info.pMappedData;
 
-Buffer Context::acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size) {
-    Buffer buffer = acquire_buffer(size, buffer_usage, memory_usage);
-    update_buffer(buffer, 0, data, data_size);
+    if (info.initial_data != nullptr) {
+        assert(info.initial_data_size <= info.size && info.map != BufferMap::NONE);
+        void* mapped;
+        vmaMapMemory(allocator, allocation, &mapped);
+        memcpy(mapped, info.initial_data, info.initial_data_size);
+        vmaUnmapMemory(allocator, allocation);
+    }
     return buffer;
 }
 
@@ -653,16 +667,10 @@ void Context::unmap_memory(VmaAllocation allocation) {
     vmaUnmapMemory(allocator, allocation);
 }
 
-Buffer Context::acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage) {
+Buffer Context::acquire_staging_buffer(const BufferInfo& info) {
     auto& frame_context = get_current_frame_context();
-    auto buffer = acquire_buffer(size, buffer_usage, memory_usage);
+    auto buffer = acquire_buffer(info);
     release_buffer_on_frame_begin(buffer);
-    return buffer;
-}
-
-Buffer Context::acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size) {
-    Buffer buffer = acquire_staging_buffer(size, buffer_usage, memory_usage);
-    update_buffer(buffer, 0, data, data_size);
     return buffer;
 }
 

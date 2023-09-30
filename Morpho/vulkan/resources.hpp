@@ -10,10 +10,32 @@
 
 namespace Morpho::Vulkan {
 
+enum class BufferMap {
+    NONE,
+    CAN_BE_MAPPED,
+    PERSISTENTLY_MAPPED,
+};
+
+struct BufferInfo {
+    VkDeviceSize size;
+    VkBufferUsageFlags usage;
+    VmaMemoryUsage memory_usage = VMA_MEMORY_USAGE_AUTO;
+    BufferMap map = BufferMap::NONE;
+    void* initial_data = nullptr;
+    VkDeviceSize initial_data_size = 0;
+};
+
+class BufferInfoBuilder {
+public:
+
+private:
+    BufferInfo info;
+};
+
 struct Buffer {
     VkBuffer buffer;
     VmaAllocation allocation;
-    VmaAllocationInfo allocation_info;
+    char* mapped;
 };
 
 struct Texture {

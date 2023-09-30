@@ -66,11 +66,8 @@ public:
     RenderPass acquire_render_pass(const RenderPassInfo& info);
     Framebuffer acquire_framebuffer(const FramebufferInfo& info);
     Pipeline create_pipeline(PipelineInfo &pipeline_info);
-    // Keep Vulkan and VMA flags for now for simplicity and prototyping speed.
-    Buffer acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
-    Buffer acquire_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size);
-    Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage);
-    Buffer acquire_staging_buffer(VkDeviceSize size, VkBufferUsageFlags buffer_usage, VmaMemoryUsage memory_usage, void* data, uint64_t data_size);
+    Buffer acquire_buffer(const BufferInfo& info);
+    Buffer acquire_staging_buffer(const BufferInfo& info);
     void release_buffer(Buffer buffer);
     void update_buffer(const Buffer buffer, uint64_t offset, const void* data, uint64_t size);
     void map_memory(VmaAllocation allocation, void **map);

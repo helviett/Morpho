@@ -303,18 +303,17 @@ void Application::init() {
     }
     for (uint32_t i = 0; i < model.buffers.size(); i++) {
         auto buffer_size = (VkDeviceSize)model.buffers[i].data.size();
-        auto staging_buffer = context->acquire_staging_buffer(
-            buffer_size,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VMA_MEMORY_USAGE_CPU_ONLY,
-            model.buffers[i].data.data(),
-            buffer_size
-        );
-        buffers[i] = context->acquire_buffer(
-            buffer_size,
-            VK_BUFFER_USAGE_TRANSFER_DST_BIT | buffer_usages[i],
-            VMA_MEMORY_USAGE_GPU_ONLY
-        );
+        auto staging_buffer = context->acquire_staging_buffer({
+            .size = buffer_size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .map = BufferMap::CAN_BE_MAPPED,
+            .initial_data = model.buffers[i].data.data(),
+            .initial_data_size = buffer_size
+        });
+        buffers[i] = context->acquire_buffer({
+            .size = buffer_size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | buffer_usages[i]
+        });
     }
     white_texture = context->create_texture(
         { 1, 1, 1 },
@@ -329,13 +328,13 @@ void Application::init() {
         assert(gltf_image.component == 4);
         auto image_size = (VkDeviceSize)(gltf_image.width * gltf_image.height * gltf_image.component * (gltf_image.bits / 8));
         VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
-        auto staging_image_buffer = context->acquire_staging_buffer(
-            image_size,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VMA_MEMORY_USAGE_CPU_ONLY,
-            gltf_image.image.data(),
-            image_size
-        );
+        auto staging_image_buffer = context->acquire_staging_buffer({
+            .size = image_size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .map = BufferMap::CAN_BE_MAPPED,
+            .initial_data = gltf_image.image.data(),
+            .initial_data_size = image_size
+        });
         textures[i] = context->create_texture(
             { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 },
             format,
@@ -356,11 +355,11 @@ void Application::init() {
     }
     const uint64_t alignment = context->get_uniform_buffer_alignment();
     const uint64_t globals_size = Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment) * 2;
-    globals_buffer = context->acquire_buffer(
-        frame_in_flight_count * globals_size,
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
-    );
+    globals_buffer = context->acquire_buffer({
+        .size = frame_in_flight_count * globals_size,
+        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        .map = Morpho::Vulkan::BufferMap::PERSISTENTLY_MAPPED,
+    });
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
         global_descriptor_sets[i] = context->create_descriptor_set(light_pipeline_layout, 0);
         DescriptorSetUpdateRequest requests[2]{};
@@ -380,11 +379,11 @@ void Application::init() {
     }
     material_descriptor_sets.resize(model.materials.size());
     std::vector<MaterialParameters> material_parameters(model.materials.size());
-    material_buffer = context->acquire_buffer(
-        model.materials.size() * sizeof(MaterialParameters),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
-    );
+    material_buffer = context->acquire_buffer({
+        .size = model.materials.size() * sizeof(MaterialParameters),
+        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
+    });
     for (uint32_t material_index = 0; material_index < model.materials.size(); material_index++) {
         auto& material = model.materials[material_index];
         material_descriptor_sets[material_index] = context->create_descriptor_set(light_pipeline_layout, 2);
@@ -430,13 +429,13 @@ void Application::init() {
     mesh_descriptor_sets.resize(model.meshes.size());
     std::vector<glm::mat4> transforms(model.meshes.size());
     precalculate_transforms(model, transforms);
-    mesh_uniforms = context->acquire_buffer(
-        model.meshes.size() * Morpho::round_up_to_alignment(sizeof(glm::mat4), alignment),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU,
-        transforms.data(),
-        transforms.size() * Morpho::round_up_to_alignment(sizeof(glm::mat4), alignment)
-    );
+    mesh_uniforms = context->acquire_buffer({
+        .size = model.meshes.size() * Morpho::round_up_to_alignment(sizeof(glm::mat4), alignment),
+        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        .map = BufferMap::CAN_BE_MAPPED,
+        .initial_data = transforms.data(),
+        .initial_data_size = transforms.size() * Morpho::round_up_to_alignment(sizeof(glm::mat4), alignment)
+    });
     for (uint32_t mesh_index = 0; mesh_index < model.meshes.size(); mesh_index++) {
         mesh_descriptor_sets[mesh_index] = context->create_descriptor_set(light_pipeline_layout, 3);
         DescriptorSetUpdateRequest request = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
@@ -446,16 +445,16 @@ void Application::init() {
     }
     auto light_uniforms_max_size = Morpho::round_up_to_alignment(sizeof(Light::LightData), alignment)
         + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
-    light_buffer = context->acquire_buffer(
-        max_light_count * frame_in_flight_count * light_uniforms_max_size,
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
-    );
-    cube_map_face_buffer = context->acquire_buffer(
-        max_light_count * frame_in_flight_count * light_uniforms_max_size * 6,
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        VMA_MEMORY_USAGE_CPU_TO_GPU
-    );
+    light_buffer = context->acquire_buffer({
+        .size = max_light_count * frame_in_flight_count * light_uniforms_max_size,
+        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        .map = BufferMap::PERSISTENTLY_MAPPED,
+    });
+    cube_map_face_buffer = context->acquire_buffer({
+        .size = max_light_count * frame_in_flight_count * light_uniforms_max_size * 6,
+        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        .map = BufferMap::PERSISTENTLY_MAPPED,
+    });
     auto extent = context->get_swapchain_extent();
     depth_buffer = context->create_texture(
         { extent.width, extent.height, 1 },
@@ -680,7 +679,7 @@ void Application::render_depth_pass_for_point_light(
         vp.view = glm::inverse(combined);
         uint32_t offset = frame_in_flight_count * light.descriptor_set_start_index * 6 * light_stride;
         offset += frame_index * 6 * light_stride + i * light_stride;
-        context->update_buffer(cube_map_face_buffer, offset, &vp, sizeof(ViewProjection));
+        memcpy(cube_map_face_buffer.mapped + offset, &vp, sizeof(ViewProjection));
         auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
             .layout(depth_pass_layout)
             .extent(extent)
@@ -775,13 +774,13 @@ std::vector<char> Application::read_file(const std::string& filename) {
 
 void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd) {
     uint32_t white_pixel = std::numeric_limits<uint32_t>::max();
-    auto white_staging_buffer = context->acquire_staging_buffer(
-        1 * 1 * 4,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        VMA_MEMORY_USAGE_CPU_ONLY,
-        &white_pixel,
-        sizeof(white_pixel)
-    );
+    auto white_staging_buffer = context->acquire_staging_buffer({
+        .size = 1 * 1 * 4,
+        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
+        .initial_data = &white_pixel,
+        .initial_data_size = sizeof(white_pixel)
+    });
     cmd.image_barrier(
         white_texture,
         VK_IMAGE_ASPECT_COLOR_BIT,
@@ -988,7 +987,7 @@ void Application::add_light(Light light) {
         requests[0].descriptor_info.buffer_info = { light_buffer, uniforms_offset, sizeof(ViewProjection), };
         uniforms_offset += Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
         requests[1].descriptor_info.buffer_info = { light_buffer, uniforms_offset, light_data_size, };
-        context->update_buffer(light_buffer, uniforms_offset, &light.light_data, light_data_size);
+        memcpy((char*)light_buffer.mapped + uniforms_offset, &light.light_data, light_data_size);
         context->update_descriptor_set(ds, requests, 3);
         light_descriptor_sets.push_back(ds);
     }
@@ -1010,7 +1009,7 @@ void Application::add_light(Light light) {
                 uniforms_offset += Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
                 requests[1].descriptor_info.buffer_info = { cube_map_face_buffer, uniforms_offset, light_data_size, };
                 requests[2].descriptor_info.texture_info = { light.views[face_index], shadow_sampler };
-                context->update_buffer(cube_map_face_buffer, uniforms_offset, &light.light_data, light_data_size);
+                memcpy(cube_map_face_buffer.mapped + uniforms_offset, &light.light_data, light_data_size);
                 context->update_descriptor_set(ds, requests, 3);
                 cube_map_face_descriptor_sets.push_back(ds);
             }
@@ -1119,13 +1118,13 @@ void Application::update(float delta) {
             vp.view = look_at(spot_light.position, spot_light.position + 10.0f * spot_light.direction, world_up);
         }
         vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
-        context->update_buffer(light_buffer, offset, &vp, sizeof(ViewProjection));
+        memcpy(light_buffer.mapped + offset, &vp, sizeof(ViewProjection));
     }
     uint64_t globals_offset = frame_index * Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment) * 2;
     ViewProjection vp;
     vp.view = camera.get_view();
     vp.proj = camera.get_projection();
-    context->update_buffer(globals_buffer, globals_offset, &vp, sizeof(ViewProjection));
+    memcpy(globals_buffer.mapped + globals_offset, &vp, sizeof(ViewProjection));
 }
 
 bool Application::load_scene(std::filesystem::path file_path) {
@@ -1165,13 +1164,13 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
     }
     for (uint32_t i = 0; i < model.buffers.size(); i++) {
         auto buffer_size = (VkDeviceSize)model.buffers[i].data.size();
-        auto staging_buffer = context->acquire_staging_buffer(
-            buffer_size,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VMA_MEMORY_USAGE_CPU_ONLY,
-            model.buffers[i].data.data(),
-            buffer_size
-        );
+        auto staging_buffer = context->acquire_staging_buffer({
+            .size = buffer_size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
+            .initial_data = model.buffers[i].data.data(),
+            .initial_data_size = buffer_size
+        });
         cmd.copy_buffer(staging_buffer, buffers[i], buffer_size);
         cmd.buffer_barrier(
             buffers[i],
@@ -1191,13 +1190,14 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
         assert(gltf_image.component == 4);
         auto image_size = (VkDeviceSize)(gltf_image.width * gltf_image.height * gltf_image.component * (gltf_image.bits / 8));
         VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
-        auto staging_image_buffer = context->acquire_staging_buffer(
-            image_size,
-            VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            VMA_MEMORY_USAGE_CPU_ONLY,
-            gltf_image.image.data(),
-            image_size
-        );
+        Morpho::Vulkan::BufferInfo buffer_info;
+        auto staging_image_buffer  = context->acquire_staging_buffer({
+            .size = image_size,
+            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+            .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
+            .initial_data = gltf_image.image.data(),
+            .initial_data_size = image_size
+        });
         cmd.image_barrier(
             textures[i],
             VK_IMAGE_ASPECT_COLOR_BIT,
