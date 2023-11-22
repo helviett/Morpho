@@ -14,6 +14,7 @@
 #include "limits.hpp"
 #include "../common/resource_cache.hpp"
 #include "descriptor_pool.hpp"
+#include "common/span.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -120,8 +121,7 @@ public:
     DescriptorSet create_descriptor_set(const PipelineLayout& pipeline_layout, uint32_t set_index);
     void update_descriptor_set(
         const DescriptorSet& descriptor_set,
-        DescriptorSetUpdateRequest* update_requests,
-        const uint32_t request_count
+        Span<const DescriptorSetUpdateRequest> update_requests
     );
 
     uint64_t get_uniform_buffer_alignment() const;

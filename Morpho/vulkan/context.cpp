@@ -991,8 +991,7 @@ bool is_buffer_descriptor(VkDescriptorType type) {
 
 void Context::update_descriptor_set(
     const DescriptorSet& descriptor_set,
-    DescriptorSetUpdateRequest* update_requests,
-    const uint32_t request_count
+    Span<const DescriptorSetUpdateRequest> update_requests
 ) {
     const uint32_t write_batch_size = 128;
     VkWriteDescriptorSet writes[write_batch_size]{};
@@ -1001,8 +1000,8 @@ void Context::update_descriptor_set(
         VkDescriptorBufferInfo buffer_info;
     } descriptor_infos[write_batch_size]{};
     uint32_t current_batch_size = 0;
-    uint32_t batch_count = (request_count + write_batch_size - 1) / write_batch_size;
-    uint32_t remaining_request_count = request_count;
+    uint32_t batch_count = (update_requests.size() + write_batch_size - 1) / write_batch_size;
+    uint32_t remaining_request_count = update_requests.size();
     uint32_t request_index = 0;
     for (uint32_t batch_index = 0; batch_index < batch_count; batch_index++) {
         const uint32_t write_count = std::min(write_batch_size, remaining_request_count);
@@ -1015,19 +1014,19 @@ void Context::update_descriptor_set(
             write.descriptorType = request.descriptor_type;
             write.descriptorCount = 1;
             if (is_buffer_descriptor(write.descriptorType)) {
-                auto buffer_info = request.descriptor_info.buffer_info;
+                auto buffer_info = request.buffer_infos;
                 auto vk_buffer_info = &descriptor_infos[write_index].buffer_info;
-                vk_buffer_info->buffer = buffer_info.buffer.buffer;
-                vk_buffer_info->offset = buffer_info.offset;
-                vk_buffer_info->range = buffer_info.range;
+                vk_buffer_info->buffer = buffer_info[0].buffer.buffer;
+                vk_buffer_info->offset = buffer_info[0].offset;
+                vk_buffer_info->range = buffer_info[0].range;
                 write.pBufferInfo = vk_buffer_info;
                 write.pImageInfo = nullptr;
             } else {
-                auto texture_info = request.descriptor_info.texture_info;
+                auto texture_info = request.texture_infos;
                 auto* vk_image_info = &descriptor_infos[write_index].image_info;
-                vk_image_info->sampler = texture_info.sampler.sampler;
-                vk_image_info->imageView = texture_info.texture.image_view;
-                vk_image_info->imageLayout = is_depth_format(texture_info.texture.format)
+                vk_image_info->sampler = texture_info[0].sampler.sampler;
+                vk_image_info->imageView = texture_info[0].texture.image_view;
+                vk_image_info->imageLayout = is_depth_format(texture_info[0].texture.format)
                     ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
                     : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 write.pImageInfo = vk_image_info;

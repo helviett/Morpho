@@ -7,6 +7,7 @@
 #include "limits.hpp"
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
+#include "common/span.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -72,9 +73,9 @@ struct DescriptorSetUpdateRequest {
     uint32_t binding;
     VkDescriptorType descriptor_type;
     union {
-        TextureDescriptorInfo texture_info;
-        BufferDescriptorInfo buffer_info;
-    } descriptor_info;
+        Span<const TextureDescriptorInfo> texture_infos;
+        Span<const BufferDescriptorInfo> buffer_infos;
+    };
 };
 
 struct SubpassInfo {

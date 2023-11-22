@@ -362,16 +362,22 @@ void Application::init() {
     });
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
         global_descriptor_sets[i] = context->create_descriptor_set(light_pipeline_layout, 0);
-        DescriptorSetUpdateRequest requests[2]{};
-        requests[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
-        requests[0].descriptor_info.buffer_info = { globals_buffer, i * globals_size, sizeof(ViewProjection), };
-        requests[1] = { 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
-        requests[1].descriptor_info.buffer_info =
-            { globals_buffer, i * globals_size + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment), sizeof(glm::mat4), };
         context->update_descriptor_set(
             global_descriptor_sets[i],
-            requests,
-            2
+            {
+                {
+                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ globals_buffer, i * globals_size, sizeof(ViewProjection), }}
+                },
+                {
+                    .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{
+                        globals_buffer,
+                        i * globals_size + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment),
+                        sizeof(glm::mat4),
+                    }},
+                },
+            }
         );
     }
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
@@ -388,28 +394,32 @@ void Application::init() {
         auto& material = model.materials[material_index];
         material_descriptor_sets[material_index] = context->create_descriptor_set(light_pipeline_layout, 2);
         uint64_t offset = material_index * sizeof(MaterialParameters);
-        DescriptorSetUpdateRequest requests[3]{};
-        requests[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
-        requests[0].descriptor_info.buffer_info =
-            { material_buffer, offset, sizeof(glm::vec4), };
         auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
         auto base_color_texture = base_color_texture_index < 0 ? white_texture : textures[base_color_texture_index];
         auto base_color_sampler_index = base_color_texture_index < 0
             ? -1 : model.textures[base_color_texture_index].sampler;
         auto base_color_sampler = base_color_sampler_index < 0 ? default_sampler : samplers[base_color_sampler_index];
-        requests[1] = { 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, };
-        requests[1].descriptor_info.texture_info = { base_color_texture, base_color_sampler, };
         auto normal_texture_index = material.normalTexture.index;
         auto normal_texture = normal_texture_index < 0 ? white_texture : textures[normal_texture_index];
         auto normal_texture_sampler_index = normal_texture_index < 0 ? -1 : model.textures[normal_texture_index].sampler;
         auto normal_texture_sampler = normal_texture_sampler_index < 0
             ? default_sampler : samplers[normal_texture_sampler_index];
-        requests[2] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, };
-        requests[2].descriptor_info.texture_info = { normal_texture, normal_texture_sampler, };
         context->update_descriptor_set(
             material_descriptor_sets[material_index],
-            requests,
-            3
+            {
+                {
+                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ material_buffer, offset, sizeof(glm::vec4), }}
+                },
+                {
+                    .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .texture_infos = {{ base_color_texture, base_color_sampler, }}
+                },
+                {
+                    .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .texture_infos = {{ normal_texture, normal_texture_sampler, }}
+                },
+            }
         );
         auto base_color_factor = glm::vec4(
             material.pbrMetallicRoughness.baseColorFactor[0],
@@ -438,10 +448,16 @@ void Application::init() {
     });
     for (uint32_t mesh_index = 0; mesh_index < model.meshes.size(); mesh_index++) {
         mesh_descriptor_sets[mesh_index] = context->create_descriptor_set(light_pipeline_layout, 3);
-        DescriptorSetUpdateRequest request = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
         uint64_t offset = mesh_index * Morpho::round_up_to_alignment(sizeof(glm::mat4), alignment);
-        request.descriptor_info.buffer_info = { mesh_uniforms, offset, sizeof(glm::mat4), };
-        context->update_descriptor_set(mesh_descriptor_sets[mesh_index], &request, 1);
+        context->update_descriptor_set(
+            mesh_descriptor_sets[mesh_index],
+            {
+                {
+                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ mesh_uniforms, offset, sizeof(glm::mat4), }}
+                },
+            }
+        );
     }
     auto light_uniforms_max_size = Morpho::round_up_to_alignment(sizeof(Light::LightData), alignment)
         + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
@@ -552,17 +568,24 @@ void Application::render_frame() {
             }
             const auto& light = lights[light_index];
             auto shadow_map = light_type == LightType::PointLight ? light.views[index_to_search] : light.shadow_map;
-            Morpho::Vulkan::DescriptorSetUpdateRequest requests[2];
-            requests[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER };
             uint64_t alignment = context->get_uniform_buffer_alignment();
             uint32_t light_stride = Morpho::round_up_to_alignment(sizeof(Light::LightData), alignment)
                 + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
             uint64_t offset = light.descriptor_set_start_index * light_stride
                 + frame_index * light_stride;
-            requests[0].descriptor_info.buffer_info = { light_buffer, offset, sizeof(ViewProjection) };
-            requests[1] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER };
-            requests[1].descriptor_info.texture_info = { shadow_map, default_sampler };
-            context->update_descriptor_set(shadow_map_visualization_descriptor_set[frame_index], requests, 2);
+            context->update_descriptor_set(
+                shadow_map_visualization_descriptor_set[frame_index],
+                {
+                    {
+                        .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                        .buffer_infos = {{ light_buffer, offset, sizeof(ViewProjection) }},
+                    },
+                    {
+                        .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                        .texture_infos = {{ shadow_map, default_sampler }},
+                    },
+                }
+            );
         } else {
             use_debug_pipeline = false;
         }
@@ -972,23 +995,32 @@ void Application::add_light(Light light) {
     uint32_t light_index = lights.size();
     light.descriptor_set_start_index = light_descriptor_sets.size();
     uint32_t light_data_size = light.light_type == LightType::SpotLight ? sizeof(SpotLight) : sizeof(PointLight);
-    Morpho::Vulkan::DescriptorSetUpdateRequest requests[3]{};
-    requests[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
-    requests[1] = { 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, };
-    requests[2] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, };
-    requests[2].descriptor_info.texture_info = { light.shadow_map, shadow_sampler };
     uint64_t alignment = context->get_uniform_buffer_alignment();
     uint32_t light_stride = Morpho::round_up_to_alignment(sizeof(Light::LightData), alignment)
         + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
     uint32_t light_offset = light_index * frame_in_flight_count * light_stride;
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
-        uint32_t uniforms_offset = light_offset + i * light_stride;
+        uint32_t vp_offset = light_offset + i * light_stride;
         auto ds = context->create_descriptor_set(light_pipeline_layout, 1);
-        requests[0].descriptor_info.buffer_info = { light_buffer, uniforms_offset, sizeof(ViewProjection), };
-        uniforms_offset += Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
-        requests[1].descriptor_info.buffer_info = { light_buffer, uniforms_offset, light_data_size, };
-        memcpy((char*)light_buffer.mapped + uniforms_offset, &light.light_data, light_data_size);
-        context->update_descriptor_set(ds, requests, 3);
+        uint32_t light_data_offset = vp_offset + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
+        memcpy((char*)light_buffer.mapped + light_data_offset, &light.light_data, light_data_size);
+        context->update_descriptor_set(
+            ds,
+            {
+                {
+                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ light_buffer, vp_offset, sizeof(ViewProjection), }},
+                },
+                {
+                    .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ light_buffer, light_data_offset, light_data_size, }},
+                },
+                {
+                    .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .texture_infos = {{ light.shadow_map, shadow_sampler }},
+                },
+            }
+        );
         light_descriptor_sets.push_back(ds);
     }
     if (light.light_type == LightType::PointLight) {
@@ -1003,14 +1035,27 @@ void Application::add_light(Light light) {
         light_offset = light_index * frame_in_flight_count * 6 * light_stride;
         for (uint32_t i = 0; i < frame_in_flight_count; i++) {
             for (uint32_t face_index = 0; face_index < 6; face_index++) {
-                uint32_t uniforms_offset = light_offset + i * light_stride * 6 + face_index * light_stride;
+                uint32_t vp_offset = light_offset + i * light_stride * 6 + face_index * light_stride;
                 auto ds = context->create_descriptor_set(light_pipeline_layout, 1);
-                requests[0].descriptor_info.buffer_info = { cube_map_face_buffer, uniforms_offset, sizeof(ViewProjection), };
-                uniforms_offset += Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
-                requests[1].descriptor_info.buffer_info = { cube_map_face_buffer, uniforms_offset, light_data_size, };
-                requests[2].descriptor_info.texture_info = { light.views[face_index], shadow_sampler };
-                memcpy(cube_map_face_buffer.mapped + uniforms_offset, &light.light_data, light_data_size);
-                context->update_descriptor_set(ds, requests, 3);
+                uint32_t light_data_offset = vp_offset + Morpho::round_up_to_alignment(sizeof(ViewProjection), alignment);
+                memcpy(cube_map_face_buffer.mapped + light_data_offset, &light.light_data, light_data_size);
+                context->update_descriptor_set(
+                    ds,
+                    {
+                        {
+                            .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                            .buffer_infos = {{ cube_map_face_buffer, vp_offset, sizeof(ViewProjection), }},
+                        },
+                        {
+                            .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                            .buffer_infos = {{ cube_map_face_buffer, light_data_offset, light_data_size, }},
+                        },
+                        {
+                            .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                            .texture_infos = {{ light.views[face_index], shadow_sampler }},
+                        },
+                    }
+                );
                 cube_map_face_descriptor_sets.push_back(ds);
             }
         }
