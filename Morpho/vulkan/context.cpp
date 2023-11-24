@@ -995,46 +995,91 @@ void Context::update_descriptor_set(
 ) {
     const uint32_t write_batch_size = 128;
     VkWriteDescriptorSet writes[write_batch_size]{};
-    union {
-        VkDescriptorImageInfo image_info;
-        VkDescriptorBufferInfo buffer_info;
-    } descriptor_infos[write_batch_size]{};
-    uint32_t current_batch_size = 0;
-    uint32_t batch_count = (update_requests.size() + write_batch_size - 1) / write_batch_size;
-    uint32_t remaining_request_count = update_requests.size();
-    uint32_t request_index = 0;
-    for (uint32_t batch_index = 0; batch_index < batch_count; batch_index++) {
-        const uint32_t write_count = std::min(write_batch_size, remaining_request_count);
-        for (uint32_t write_index = 0; write_index < write_count; write_index++) {
-            auto& write = writes[write_index];
-            auto& request = update_requests[request_index++];
-            write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-            write.dstSet = descriptor_set.descriptor_set;
-            write.dstBinding = request.binding;
-            write.descriptorType = request.descriptor_type;
-            write.descriptorCount = 1;
-            if (is_buffer_descriptor(write.descriptorType)) {
-                auto buffer_info = request.buffer_infos;
-                auto vk_buffer_info = &descriptor_infos[write_index].buffer_info;
-                vk_buffer_info->buffer = buffer_info[0].buffer.buffer;
-                vk_buffer_info->offset = buffer_info[0].offset;
-                vk_buffer_info->range = buffer_info[0].range;
-                write.pBufferInfo = vk_buffer_info;
-                write.pImageInfo = nullptr;
-            } else {
-                auto texture_info = request.texture_infos;
-                auto* vk_image_info = &descriptor_infos[write_index].image_info;
-                vk_image_info->sampler = texture_info[0].sampler.sampler;
-                vk_image_info->imageView = texture_info[0].texture.image_view;
-                vk_image_info->imageLayout = is_depth_format(texture_info[0].texture.format)
-                    ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
-                    : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-                write.pImageInfo = vk_image_info;
-                write.pBufferInfo = nullptr;
-            }
+    const uint32_t info_size = std::max(sizeof(VkDescriptorImageInfo), sizeof(VkDescriptorBufferInfo)) * 1024;
+    uint8_t vk_infos[info_size];
+    uint32_t current_write_index = 0;
+    uint32_t infos_offset = 0;
+    for (uint32_t request_index = 0; request_index < update_requests.size(); request_index++) {
+        const DescriptorSetUpdateRequest& request = update_requests[request_index];
+        VkWriteDescriptorSet* write = &writes[current_write_index];
+        *write = {};
+        write->sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        write->dstSet = descriptor_set.descriptor_set;
+        write->dstBinding = request.binding;
+        write->descriptorType = request.descriptor_type;
+        write->dstArrayElement = 0;
+        if (is_buffer_descriptor(write->descriptorType)) {
+            uint32_t descriptor_count = request.texture_infos.size(); 
+            uint32_t current_texture_info = 0;
+            write->pImageInfo = nullptr;
+            while (descriptor_count > 0) {
+                uint32_t slot_count = std::min(
+                    descriptor_count, 
+                    (info_size - infos_offset) / (uint32_t)sizeof(VkDescriptorBufferInfo)
+                );
+                if (slot_count == 0) {
+                    // Ran out of space so have to flush.
+                    vkUpdateDescriptorSets(device, current_write_index + 1, writes, 0, nullptr);
+                    write = &writes[0];
+                    write->dstArrayElement += write->descriptorCount;
+                    current_write_index = infos_offset = 0;
+                    continue;
+                }
+                VkDescriptorBufferInfo* vk_buffer_infos = (VkDescriptorBufferInfo*)(vk_infos + infos_offset);
+                write->pBufferInfo = vk_buffer_infos;
+                for (uint32_t i = 0; i < slot_count; i++) {
+                    VkDescriptorBufferInfo& vk_buffer_info = vk_buffer_infos[i];
+                    const BufferDescriptorInfo& buffer_info = request.buffer_infos[current_texture_info + i];
+                    vk_buffer_info.buffer = buffer_info.buffer.buffer;
+                    vk_buffer_info.offset = buffer_info.offset;
+                    vk_buffer_info.range = buffer_info.range;
+                }
+                descriptor_count -= slot_count;
+                write->descriptorCount = slot_count;
+            } 
+        } else {
+            uint32_t descriptor_count = request.texture_infos.size(); 
+            uint32_t current_texture_info = 0;
+            write->pBufferInfo = nullptr;
+            while (descriptor_count > 0) {
+                uint32_t slot_count = std::min(
+                    descriptor_count, 
+                    (info_size - infos_offset) / (uint32_t)sizeof(VkDescriptorImageInfo)
+                );
+                if (slot_count == 0) {
+                    // Ran out of space so have to flush.
+                    vkUpdateDescriptorSets(device, current_write_index + 1, writes, 0, nullptr);
+                    write = &writes[0];
+                    write->dstArrayElement += write->descriptorCount;
+                    current_write_index = infos_offset = 0;
+                    continue;
+                }
+                VkDescriptorImageInfo* vk_image_infos = (VkDescriptorImageInfo*)(vk_infos + infos_offset);
+                write->pImageInfo = vk_image_infos;
+                for (uint32_t i = 0; i < slot_count; i++) {
+                    VkDescriptorImageInfo& vk_image_info = vk_image_infos[i];
+                    const TextureDescriptorInfo& texture_info = request.texture_infos[current_texture_info + i];
+                    vk_image_info = {};
+                    vk_image_info.sampler = texture_info.sampler.sampler;
+                    vk_image_info.imageView = texture_info.texture.image_view;
+                    vk_image_info.imageLayout = is_depth_format(texture_info.texture.format)
+                        ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
+                        : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                }
+                descriptor_count -= slot_count;
+                write->descriptorCount = slot_count;
+            } 
         }
-        vkUpdateDescriptorSets(device, write_count, writes, 0, nullptr);
-        remaining_request_count -= write_batch_size;
+        current_write_index++;
+        // Ensures that none of the branch run into the situation when it can't write a single descriptor.
+        // It simplifies code.
+        if ((info_size - info_size) / std::max(sizeof(VkDescriptorImageInfo), sizeof(VkDescriptorBufferInfo)) == 0) { 
+            vkUpdateDescriptorSets(device, current_write_index, writes, 0, nullptr);
+            current_write_index = infos_offset = 0;
+        }
+    }
+    if (current_write_index != 0) {
+        vkUpdateDescriptorSets(device, current_write_index, writes, 0, nullptr);
     }
 }
 
