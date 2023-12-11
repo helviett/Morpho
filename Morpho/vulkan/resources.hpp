@@ -223,6 +223,7 @@ struct PipelineInfo {
     float depth_bias_slope_factor;
     bool depth_test_enabled;
     bool depth_write_enabled;
+    bool depth_clamp_enabled;
     VkCompareOp depth_compare_op;
     VkPipelineColorBlendAttachmentState blend_state;
     RenderPassLayout* render_pass_layout;

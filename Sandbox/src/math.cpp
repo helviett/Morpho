@@ -17,7 +17,7 @@ glm::mat4 look_at(
     const glm::vec3& world_up
 ) {
     glm::vec3 f = glm::normalize(camera_position - look_at_position);
-    glm::vec3 r = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), f));
+    glm::vec3 r = glm::normalize(glm::cross(world_up, f));
     glm::vec3 u = glm::cross(f, r);
     return glm::mat4(
         r.x, -u.x, -f.x, 0.0f,
@@ -25,4 +25,40 @@ glm::mat4 look_at(
         r.z, -u.z, -f.z, 0.0f,
         -dot(r, camera_position), -dot(-u, camera_position), -dot(-f, camera_position), 1.0f
     );
+}
+
+glm::mat4 ortho(float w, float h, float d) {
+    return glm::mat4(
+        2.0f / w, 0.0f, 0.0f, 0.0f,
+        0.0f, 2.0f / h, 0.0f, 0.0f,
+        0.0f, 0.0f, 1.0f / d, 0.0f,
+        0.0f, 0.0f, 0.0f, 1.0f
+    );
+}
+
+Frustum::Frustum(std::initializer_list<glm::vec3> vertices) {
+    assert(vertices.size() == 8);
+    uint32_t i = 0;
+    for (auto& vertex : vertices) {
+        this->vertices[i++] = vertex;
+    }
+}
+
+glm::vec3 Frustum::operator[](uint32_t index) {
+    assert(index < 8);
+    return vertices[index];
+}
+
+
+Frustum Frustum::from_projection_plane(float g, float s, float a, float b) {
+    return {
+        glm::vec3(a * s / g, a / g, a),
+        glm::vec3(-a * s / g, a / g, a),
+        glm::vec3(-a * s / g, -a / g, a),
+        glm::vec3(a * s / g, -a / g, a),
+        glm::vec3(b * s / g, b / g, b),
+        glm::vec3(-b * s / g, b / g, b),
+        glm::vec3(-b * s / g, -b / g, b),
+        glm::vec3(b * s / g, -b / g, b),
+    };
 }

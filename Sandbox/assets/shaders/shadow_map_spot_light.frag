@@ -16,10 +16,13 @@ float linearize_depth(float z, float n, float f)
 }
 
 void main() {
+    float depth = texture(shadow_map, in_uv).r;
     float x = lvp.proj[2][2];
     float y = lvp.proj[3][2];
-    float near = -y / x;
-    float far = -y / (x - 1);
-    float depth = texture(shadow_map, in_uv).r;
-    out_color = vec4(vec3(linearize_depth(depth, near, far)), 1.0);
+    if (y != 0.0) {
+        float near = -y / x;
+        float far = -y / (x - 1);
+        depth = linearize_depth(depth, near, far);
+    }
+    out_color = vec4(vec3(depth), 1.0);
 }

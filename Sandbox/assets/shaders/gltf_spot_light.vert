@@ -1,14 +1,10 @@
 #version 450
-
+#extension GL_GOOGLE_include_directive : enable
+#include "globals.h"
 // set 0 -- globals
 // set 1 -- per light
 // set 2 -- per material
 // set 3 -- per draw
-
-layout(set = 0, binding = 0) uniform ViewProjectionBlock {
-    mat4 view;
-    mat4 proj;
-} vp;
 
 layout(set = 1, binding = 0) uniform LightViewPorjectionBlock {
     mat4 view;
@@ -32,7 +28,7 @@ layout(location = 4) out vec4 out_light_space_position;
 
 void main() {
     vec4 position = model.t * vec4(in_position, 1.0);
-    gl_Position = vp.proj * vp.view * position;
+    gl_Position = globals.proj * globals.view * position;
     out_position = position.xyz;
     out_uv = in_uv;
     out_normal = (model.t * vec4(in_normal, 0.0)).xyz;

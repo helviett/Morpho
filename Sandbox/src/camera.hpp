@@ -1,4 +1,5 @@
 #pragma once
+#include "math.hpp"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/matrix_inverse.hpp>
@@ -23,7 +24,12 @@ public:
     glm::vec3 get_forward();
     glm::vec3 get_position();
     glm::mat4 get_view();
+    glm::mat4 get_transform();
     glm::mat4 get_projection();
+    Frustum get_frustum();
+    Frustum get_frustum(float a, float b);
+    float get_near() const;
+    float get_far() const;
 private:
     bool is_view_dirty = true;
     glm::vec3 forward;
@@ -33,8 +39,13 @@ private:
     float yaw;
     float pitch;
     glm::mat4 view;
+    glm::mat4 transform;
     glm::mat4 projection;
     glm::vec3 world_up;
+    float g;
+    float s;
+    float near;
+    float far;
 
     void calculate_view_if_needed();
 };

@@ -1,9 +1,6 @@
 #version 450
-
-layout(set = 0, binding = 0) uniform ViewProjectionBlock {
-    mat4 view;
-    mat4 proj;
-} vp;
+#extension GL_GOOGLE_include_directive : enable
+#include "globals.h"
 
 layout(set = 3, binding = 0) uniform ModelBlock {
     mat4 t;
@@ -21,7 +18,7 @@ layout(location = 3) out vec4 out_tangent;
 
 void main() {
     vec4 position = model.t * vec4(in_position, 1.0);
-    gl_Position = vp.proj * vp.view * position;
+    gl_Position = globals.proj * globals.view * position;
     out_position = position.xyz;
     out_uv = in_uv;
     out_normal = (model.t * vec4(in_normal, 0.0)).xyz;

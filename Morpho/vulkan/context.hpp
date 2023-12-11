@@ -132,6 +132,9 @@ public:
     VkFormat get_swapchain_format() const;
     // end of WSI stuff
 
+    // debug
+    void wait_queue_idle();
+
 private:
 #ifdef NDEBUG
     const bool enable_validation_layers = false;

@@ -120,7 +120,9 @@ VkPhysicalDevice Context::select_gpu() {
             best_candidate = candidate;
         }
     }
-
+    VkPhysicalDeviceProperties properties;
+    vkGetPhysicalDeviceProperties(best_candidate, &properties);
+    std::cout << "Selected: " << properties.deviceName << std::endl;
     return best_candidate;
 }
 
@@ -218,12 +220,16 @@ VkResult Context::try_create_device() {
 
     std::array<const char *, 2> extensions = { "VK_KHR_swapchain", VK_KHR_SHADER_NON_SEMANTIC_INFO_EXTENSION_NAME, };
 
+    VkPhysicalDeviceFeatures2 features = { VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, };
+    vkGetPhysicalDeviceFeatures2(gpu, &features);
+
     VkDeviceCreateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
     info.queueCreateInfoCount = 1;
     info.pQueueCreateInfos = &queue_info;
     info.enabledExtensionCount = (uint32_t)extensions.size();
     info.ppEnabledExtensionNames = extensions.data();
+    info.pNext = &features;
 
 
     return vkCreateDevice(gpu, &info, nullptr, &device);
@@ -433,7 +439,7 @@ void Context::submit(CommandBuffer command_buffer) {
     auto handle = command_buffer.get_vulkan_handle();
     vkEndCommandBuffer(handle);
     auto& frame_context = get_current_frame_context();
-    VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, };
+    VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, };
     VkSubmitInfo info{};
     info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     info.commandBufferCount = 1;
@@ -560,6 +566,7 @@ Pipeline Context::create_pipeline(PipelineInfo &pipeline_info) {
     rasterization_state.depthBiasEnable = pipeline_info.depth_bias_constant_factor != 0.0f || pipeline_info.depth_bias_slope_factor != 0.0f;
     rasterization_state.depthBiasConstantFactor = pipeline_info.depth_bias_constant_factor;
     rasterization_state.depthBiasSlopeFactor = pipeline_info.depth_bias_slope_factor;
+    rasterization_state.depthClampEnable = pipeline_info.depth_clamp_enabled;
 
     VkPipelineMultisampleStateCreateInfo multisample_state{};
     multisample_state.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
@@ -829,10 +836,11 @@ Texture Context::create_texture(
     VmaAllocationInfo allocation_info;
     vmaCreateImage(allocator, &image_info, &allocation_create_info, &vk_image, &allocation, &allocation_info);
 
-    // Support 2D and Cube textures for now.
     VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
     if (array_layers == 6 && (flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) != 0) {
         view_type = VK_IMAGE_VIEW_TYPE_CUBE;
+    } else if (array_layers > 1) {
+        view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
     }
 
     VkImageAspectFlags aspect = is_depth_format(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
@@ -1009,12 +1017,12 @@ void Context::update_descriptor_set(
         write->descriptorType = request.descriptor_type;
         write->dstArrayElement = 0;
         if (is_buffer_descriptor(write->descriptorType)) {
-            uint32_t descriptor_count = request.texture_infos.size(); 
+            uint32_t descriptor_count = request.texture_infos.size();
             uint32_t current_texture_info = 0;
             write->pImageInfo = nullptr;
             while (descriptor_count > 0) {
                 uint32_t slot_count = std::min(
-                    descriptor_count, 
+                    descriptor_count,
                     (info_size - infos_offset) / (uint32_t)sizeof(VkDescriptorBufferInfo)
                 );
                 if (slot_count == 0) {
@@ -1036,14 +1044,14 @@ void Context::update_descriptor_set(
                 }
                 descriptor_count -= slot_count;
                 write->descriptorCount = slot_count;
-            } 
+            }
         } else {
-            uint32_t descriptor_count = request.texture_infos.size(); 
+            uint32_t descriptor_count = request.texture_infos.size();
             uint32_t current_texture_info = 0;
             write->pBufferInfo = nullptr;
             while (descriptor_count > 0) {
                 uint32_t slot_count = std::min(
-                    descriptor_count, 
+                    descriptor_count,
                     (info_size - infos_offset) / (uint32_t)sizeof(VkDescriptorImageInfo)
                 );
                 if (slot_count == 0) {
@@ -1068,12 +1076,12 @@ void Context::update_descriptor_set(
                 }
                 descriptor_count -= slot_count;
                 write->descriptorCount = slot_count;
-            } 
+            }
         }
         current_write_index++;
         // Ensures that none of the branch run into the situation when it can't write a single descriptor.
         // It simplifies code.
-        if ((info_size - info_size) / std::max(sizeof(VkDescriptorImageInfo), sizeof(VkDescriptorBufferInfo)) == 0) { 
+        if ((info_size - info_size) / std::max(sizeof(VkDescriptorImageInfo), sizeof(VkDescriptorBufferInfo)) == 0) {
             vkUpdateDescriptorSets(device, current_write_index, writes, 0, nullptr);
             current_write_index = infos_offset = 0;
         }
@@ -1140,6 +1148,7 @@ VkRenderPass Context::create_render_pass(const RenderPassInfo& info) {
         subpass.pDepthStencilAttachment = &references[reference_index];
         auto& reference = references[reference_index++];
         reference.attachment = subpass_info.depth_attachment.value();
+        //attachment_descriptions[subpass_info.depth_attachment.value()].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
         // TODO: How to determine if it's readonly?
         reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
     }
@@ -1213,6 +1222,10 @@ RenderPass Context::acquire_render_pass(const RenderPassInfo& info) {
     render_pass.layout = info.layout;
     render_pass.render_pass = vk_render_pass;
     return render_pass;
+}
+
+void Context::wait_queue_idle() {
+    vkQueueWaitIdle(graphics_queue);
 }
 
 }

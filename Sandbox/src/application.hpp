@@ -1,6 +1,7 @@
 #pragma once
 
 #include "vulkan/resources.hpp"
+#include <vulkan/vulkan_core.h>
 #define VK_USE_PLATFORM_WIN32_KHR
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
@@ -25,6 +26,12 @@ struct Vertex {
 struct ViewProjection {
     alignas(16) glm::mat4 view;
     alignas(16) glm::mat4 proj;
+};
+
+struct Globals {
+    alignas(16) glm::mat4 view;
+    alignas(16) glm::mat4 proj;
+    alignas(16) glm::vec3 camera_position;
 };
 
 struct DirectionalLight {
@@ -91,6 +98,7 @@ struct SpotLight {
 enum class LightType {
     SpotLight,
     PointLight,
+    DirectionalLight,
 };
 
 struct Light {
@@ -104,6 +112,15 @@ struct Light {
     } light_data;
 };
 
+const uint32_t cascade_count = 3;
+
+struct CsmUniform {
+    glm::mat4 first_cascade_view_proj;
+    glm::vec4 ranges[cascade_count];
+    glm::vec4 offsets[cascade_count];
+    glm::vec4 scales[cascade_count];
+};
+
 class Application {
 public:
     void init();
@@ -113,6 +130,8 @@ public:
 private:
     static const uint32_t frame_in_flight_count = 2;
     static const uint32_t max_light_count = 128;
+    static const VkFormat depth_format = VK_FORMAT_D24_UNORM_S8_UINT;
+    static const VkImageAspectFlags depth_aspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
 
     Input input;
     GLFWwindow* window;
@@ -122,6 +141,8 @@ private:
     Morpho::Vulkan::RenderPassLayout color_pass_layout;
     Morpho::Vulkan::RenderPassLayout depth_pass_layout;
     Morpho::Vulkan::PipelineLayout light_pipeline_layout;
+    Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw_depth_clamp;
+    Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw_depth_clamp_double_sided;
     Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw;
     Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw_double_sided;
     Morpho::Vulkan::Pipeline depth_pass_pipeline_cw;
@@ -130,6 +151,8 @@ private:
     Morpho::Vulkan::Pipeline spotlight_pipeline_double_sided;
     Morpho::Vulkan::Pipeline pointlight_pipeline;
     Morpho::Vulkan::Pipeline pointlight_pipeline_double_sided;
+    Morpho::Vulkan::Pipeline directional_light_pipeline;
+    Morpho::Vulkan::Pipeline directional_light_pipeline_double_sided;
     Morpho::Vulkan::Pipeline no_light_pipeline;
     Morpho::Vulkan::Pipeline no_light_pipeline_double_sided;
     Morpho::Vulkan::Pipeline shadow_map_visualization_pipeline;
@@ -143,6 +166,8 @@ private:
     Morpho::Vulkan::Shader gltf_point_light_vertex_shader;
     Morpho::Vulkan::Shader gltf_spot_light_fragment_shader;
     Morpho::Vulkan::Shader gltf_point_light_fragment_shader;
+    Morpho::Vulkan::Shader gltf_directional_light_vertex_shader;
+    Morpho::Vulkan::Shader gltf_directional_light_fragment_shader;
     Morpho::Vulkan::Shader no_light_vertex_shader;
     Morpho::Vulkan::Shader no_light_fragment_shader;
     Morpho::Vulkan::Shader full_screen_triangle_shader;
@@ -169,6 +194,23 @@ private:
     uint32_t frames_total = 0;
     uint32_t frame_index = 0;
     std::vector<Light> lights;
+    DirectionalLight sun { glm::normalize(glm::vec3(0.0f, -1.0f, 0.0f)), glm::vec3(1.0f, 1.0f, 1.0f) };
+    // Just to escape offset hell until proper allocator is implemented.
+    Morpho::Vulkan::Buffer directional_shadow_map_uniform_buffer;
+    Morpho::Vulkan::Buffer csm_uniform_buffer;
+    Morpho::Vulkan::Buffer directional_light_uniform_buffer;
+    Morpho::Vulkan::Texture cascaded_shadow_maps;
+    Morpho::Vulkan::DescriptorSet csm_descriptor_sets[frame_in_flight_count];
+    Morpho::Vulkan::Texture directional_shadow_maps[cascade_count];
+    Morpho::Vulkan::DescriptorSet directional_shadow_map_descriptor_sets[frame_in_flight_count * cascade_count];
+
+
+
+    bool debug_mode = false;
+    uint32_t current_light_index = 0;
+    // cube face or array index
+    uint32_t current_slice_index = 0;
+    LightType current_light_type = LightType::DirectionalLight;
 
     bool is_first_update = true;
     Camera camera;
@@ -202,6 +244,7 @@ private:
     void render_frame();
     void initialize_key_map();
     void update(float delta);
+    void calculate_cascades();
     Key glfw_key_code_to_key(int code);
     void create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd);
     void draw_model(
@@ -247,8 +290,10 @@ private:
         Morpho::Vulkan::CommandBuffer& cmd,
         const Light& point_light
     );
+    void render_depth_pass_for_directional_light(Morpho::Vulkan::CommandBuffer& cmd);
     void render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd);
     void begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd);
+    void render_color_pass_for_directional_light(Morpho::Vulkan::CommandBuffer& cmd);
     void render_color_pass_for_spotlight(
         Morpho::Vulkan::CommandBuffer& cmd,
         const Light& light
