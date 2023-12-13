@@ -7,6 +7,30 @@
 
 namespace Morpho::Vulkan {
 
+static inline bool is_depth_format(VkFormat format) {
+    return format == VK_FORMAT_D16_UNORM
+        || format == VK_FORMAT_D16_UNORM_S8_UINT
+        || format == VK_FORMAT_D24_UNORM_S8_UINT
+        || format == VK_FORMAT_D32_SFLOAT
+        || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
+}
+
+static inline VkImageAspectFlags derive_aspect(VkFormat format) {
+    switch (format) {
+        case VK_FORMAT_D16_UNORM:
+        case VK_FORMAT_D32_SFLOAT:
+            return VK_IMAGE_ASPECT_DEPTH_BIT;
+        case VK_FORMAT_S8_UINT:
+            return VK_IMAGE_ASPECT_STENCIL_BIT;
+        case VK_FORMAT_D16_UNORM_S8_UINT:
+        case VK_FORMAT_D24_UNORM_S8_UINT:
+        case VK_FORMAT_D32_SFLOAT_S8_UINT:
+            return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        default:
+            return VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+}
+
 void DestroyDebugUtilsMessengerEXT(
     VkInstance instance,
     VkDebugUtilsMessengerEXT debugMessenger,
@@ -843,7 +867,7 @@ Texture Context::create_texture(
         view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
     }
 
-    VkImageAspectFlags aspect = is_depth_format(format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    VkImageAspectFlags aspect = derive_aspect(format);
 
     VkImageViewCreateInfo image_view_info{};
     image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -865,6 +889,7 @@ Texture Context::create_texture(
     texture.allocation = allocation;
     texture.allocation_info = allocation_info;
     texture.format = format;
+    texture.aspect = aspect;
     texture.owns_image = true;
     return texture;
 }
@@ -886,7 +911,7 @@ Texture Context::create_texture_view(const Texture& texture, uint32_t base_array
 {
     VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
 
-    VkImageAspectFlags aspect = is_depth_format(texture.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+    VkImageAspectFlags aspect = texture.aspect;
 
     VkImageViewCreateInfo image_view_info{};
     image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -904,6 +929,7 @@ Texture Context::create_texture_view(const Texture& texture, uint32_t base_array
 
     Texture view{};
     view.format = texture.format;
+    view.aspect = texture.aspect;
     view.image = texture.image;
     view.image_view = vk_image_view;
     return view;

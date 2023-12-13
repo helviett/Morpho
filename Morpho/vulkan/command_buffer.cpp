@@ -73,74 +73,59 @@ void CommandBuffer::copy_buffer_to_image(Buffer source, Texture destination, VkE
     );
 }
 
-void CommandBuffer::image_barrier(
-    const Texture& texture,
-    VkImageAspectFlags aspect,
-    VkImageLayout old_layout,
-    VkImageLayout new_layout,
-    VkPipelineStageFlags src_stages,
-    VkAccessFlags src_access,
-    VkPipelineStageFlags dst_stages,
-    VkAccessFlags dst_access,
-    uint32_t layer_count
+void CommandBuffer::barrier(
+    Span<const TextureBarrier> texture_barriers,
+    Span<const BufferBarrier> buffer_barriers
 ) {
-    VkImageMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-    barrier.oldLayout = old_layout;
-    barrier.newLayout = new_layout;
-    barrier.srcAccessMask = src_access;
-    barrier.dstAccessMask = dst_access;
-    barrier.image = texture.image;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.subresourceRange.aspectMask = aspect;
-    barrier.subresourceRange.levelCount = 1;
-    barrier.subresourceRange.layerCount = layer_count;
+    VkPipelineStageFlags src_stages{};
+    VkPipelineStageFlags dst_stages{};
+    VkMemoryBarrier memory_barrier{};
+    memory_barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+    // TODO: alloca
+    VkImageMemoryBarrier image_barriers[128]{};
+    assert(texture_barriers.size() <= 128);
+    // AFAIK no driver takes advantage over VkBufferBarrier
+    // so just merge everything into VkMemoryBarrier and ignore offset and size.
+    for (uint32_t i = 0; i < buffer_barriers.size(); i++) {
+        src_stages |= buffer_barriers[i].src_stages;
+        memory_barrier.srcAccessMask |= buffer_barriers[i].src_access;
+        dst_stages |= buffer_barriers[i].dst_stages;
+        memory_barrier.dstAccessMask |= buffer_barriers[i].dst_access;
+    }
+    for (uint32_t i = 0; i < texture_barriers.size(); i++) {
+        const TextureBarrier& barrier = texture_barriers[i];
+        VkImageMemoryBarrier& vk_barrier = image_barriers[i];
+        vk_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+        vk_barrier.image = barrier.texture.image;
+        vk_barrier.oldLayout = barrier.old_layout;
+        vk_barrier.newLayout = barrier.new_layout;
+        vk_barrier.srcAccessMask = barrier.src_access;
+        src_stages |= barrier.src_stages;
+        vk_barrier.dstAccessMask = barrier.dst_access;
+        dst_stages |= barrier.dst_stages;
+        vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+        vk_barrier.subresourceRange.aspectMask = barrier.texture.aspect;
+        vk_barrier.subresourceRange.baseMipLevel = barrier.base_mip_level;
+        vk_barrier.subresourceRange.levelCount = barrier.mip_level_count;
+        vk_barrier.subresourceRange.baseArrayLayer = barrier.base_layer;
+        vk_barrier.subresourceRange.layerCount = barrier.layer_count;
+    }
+    uint32_t memory_barrier_count = memory_barrier.srcAccessMask != 0 || memory_barrier.dstAccessMask != 0 ? 1 : 0;
     vkCmdPipelineBarrier(
-        command_buffer,
-        src_stages,
-        dst_stages,
-        0,
-        0,
-        nullptr,
-        0,
-        nullptr,
-        1,
-        &barrier
+         command_buffer,
+         src_stages,
+         dst_stages,
+         0,
+         memory_barrier_count,
+         memory_barrier_count != 0 ? &memory_barrier : nullptr,
+         0,
+         nullptr,
+         texture_barriers.size(),
+         image_barriers
     );
 }
 
-void CommandBuffer::buffer_barrier(
-    const Buffer& buffer,
-    VkPipelineStageFlags src_stages,
-    VkAccessFlags src_access,
-    VkPipelineStageFlags dst_stages,
-    VkAccessFlags dst_access,
-    VkDeviceSize offset,
-    VkDeviceSize size
-) {
-    VkBufferMemoryBarrier barrier{};
-    barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    barrier.buffer = buffer.buffer;
-    barrier.srcAccessMask = src_access;
-    barrier.dstAccessMask = dst_access;
-    barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    barrier.offset = offset;
-    barrier.size = size;
-    vkCmdPipelineBarrier(
-        command_buffer,
-        src_stages,
-        dst_stages,
-        0,
-        0,
-        nullptr,
-        1,
-        &barrier,
-        0,
-        nullptr
-    );
-}
 
 void CommandBuffer::set_viewport(VkViewport viewport) {
     vkCmdSetViewport(command_buffer, 0, 1, &viewport);

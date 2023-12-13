@@ -1,11 +1,36 @@
 #pragma once
 #include <vulkan/vulkan.h>
+#include <vulkan/vulkan_core.h>
 #include "limits.hpp"
 #include "resources.hpp"
 
 namespace Morpho::Vulkan {
 
 class Context;
+
+struct TextureBarrier {
+    Texture texture;
+    VkImageLayout old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
+    VkImageLayout new_layout;
+    uint32_t base_layer = 0;
+    uint32_t layer_count = VK_REMAINING_ARRAY_LAYERS;
+    uint32_t base_mip_level = 0;
+    uint32_t mip_level_count = VK_REMAINING_MIP_LEVELS;
+    VkPipelineStageFlags src_stages;
+    VkAccessFlags src_access;
+    VkPipelineStageFlags dst_stages;
+    VkAccessFlags dst_access;
+};
+
+struct BufferBarrier {
+    Buffer buffer;
+    VkDeviceSize offset = 0;
+    VkDeviceSize size = VK_WHOLE_SIZE;
+    VkPipelineStageFlags src_stages;
+    VkAccessFlags src_access;
+    VkPipelineStageFlags dst_stages;
+    VkAccessFlags dst_access;
+};
 
 class CommandBuffer {
 public:
@@ -24,25 +49,9 @@ public:
     );
     void copy_buffer(Buffer source, Buffer destination, VkDeviceSize size) const;
     void copy_buffer_to_image(Buffer source, Texture destination, VkExtent3D extent) const;
-    void image_barrier(
-        const Texture& texture,
-        VkImageAspectFlags aspect,
-        VkImageLayout old_layout,
-        VkImageLayout new_layout,
-        VkPipelineStageFlags src_stages,
-        VkAccessFlags src_access,
-        VkPipelineStageFlags dst_stages,
-        VkAccessFlags dst_access,
-        uint32_t layer_count = 1
-    );
-    void buffer_barrier(
-        const Buffer& buffer,
-        VkPipelineStageFlags src_stages,
-        VkAccessFlags src_access,
-        VkPipelineStageFlags dst_stages,
-        VkAccessFlags dst_access,
-        VkDeviceSize offset,
-        VkDeviceSize size
+    void barrier(
+        Span<const TextureBarrier> texture_barriers,
+        Span<const BufferBarrier> buffer_barriers
     );
     void begin_render_pass(
         RenderPass render_pass,

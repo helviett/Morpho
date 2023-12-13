@@ -130,8 +130,12 @@ public:
 private:
     static const uint32_t frame_in_flight_count = 2;
     static const uint32_t max_light_count = 128;
-    static const VkFormat depth_format = VK_FORMAT_D24_UNORM_S8_UINT;
-    static const VkImageAspectFlags depth_aspect = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+    // Stick with depth only format for now to avoid creating view by aspect.
+    // (For depth + stencil format attachment requires both DEPTH and STENCIL even if stencil is not used,
+    // but to sample depth texture we need view with only DEPTH aspect,
+    // perhaps there should be RenderTarget structure that creates all necessary views upfront)
+    static const VkFormat depth_format = VK_FORMAT_D16_UNORM;
+    static const VkImageAspectFlags depth_aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
 
     Input input;
     GLFWwindow* window;
@@ -236,8 +240,11 @@ private:
         {"TANGENT", 3},
     };
     std::map<uint32_t, Morpho::Vulkan::Pipeline> pipeline_cache;
+    std::vector<Morpho::Vulkan::TextureBarrier> texture_barriers;
 
     void main_loop();
+    void begin_frame(Morpho::Vulkan::CommandBuffer& cmd);
+    void transition_shadow_maps(Morpho::Vulkan::CommandBuffer& cmd);
     void initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd);
     void init_window();
     void cleanup();

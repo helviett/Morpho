@@ -41,6 +41,7 @@ struct Buffer {
 
 struct Texture {
     VkFormat format;
+    VkImageAspectFlags aspect;
     bool owns_image;
     VkImage image;
     VkImageView image_view;

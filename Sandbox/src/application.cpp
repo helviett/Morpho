@@ -12,6 +12,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <vector>
 #include <vulkan/vulkan_core.h>
+#include "common/span.hpp"
 #include "common/utils.hpp"
 #include "math.hpp"
 #include "vulkan/context.hpp"
@@ -615,6 +616,83 @@ void Application::main_loop() {
     }
 }
 
+void Application::begin_frame(Morpho::Vulkan::CommandBuffer& cmd) {
+    // Transition all RTs to layout required in the beginning of the frame. 
+    texture_barriers.push_back({
+       .texture = context->get_swapchain_texture(),
+       .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+       .new_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+       .src_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+       .src_access = 0,
+       .dst_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+       .dst_access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
+    });
+    texture_barriers.push_back({
+        .texture = depth_buffer,
+        .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+        .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        .src_stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        .src_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+        .dst_stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        .dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    });
+    texture_barriers.push_back({
+        .texture = cascaded_shadow_maps,
+        .old_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+        .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        .src_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        .src_access = VK_ACCESS_SHADER_READ_BIT,
+        .dst_stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+        .dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+    });
+    for (uint32_t i = 0; i < lights.size(); i++) {
+        const Light& light = lights[i];
+        texture_barriers.push_back({
+            .texture = light.shadow_map,
+            .old_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            .src_stages = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            .src_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .dst_access = VK_ACCESS_SHADER_READ_BIT
+        });
+    }
+    cmd.barrier(
+        Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()),
+        {}
+    );
+    texture_barriers.clear();
+}
+
+void Application::transition_shadow_maps(Morpho::Vulkan::CommandBuffer& cmd) {
+   texture_barriers.push_back({
+       .texture = cascaded_shadow_maps,
+       .old_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+       .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+       .src_stages = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+       .src_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+       .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+       .dst_access = VK_ACCESS_SHADER_READ_BIT,
+    });
+   for (uint32_t i = 0; i < lights.size(); i++) { 
+        const Light& light = lights[i];
+        texture_barriers.push_back({
+            .texture = light.shadow_map,
+            .old_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            .src_stages = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            .src_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .dst_access = VK_ACCESS_SHADER_READ_BIT,
+        });
+   }
+    cmd.barrier(
+        Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()),
+        {}
+    );
+    texture_barriers.clear();
+}
+
 void Application::set_graphics_context(Morpho::Vulkan::Context* context) {
     this->context = context;
 }
@@ -645,6 +723,7 @@ void Application::render_frame() {
         initialize_static_resources(cmd);
         is_first_update = false;
     }
+    begin_frame(cmd);
     cmd.bind_descriptor_set(global_descriptor_sets[frame_index]);
     render_depth_pass_for_directional_light(cmd);
     for (uint32_t i = 0; i < lights.size(); i++) {
@@ -657,6 +736,7 @@ void Application::render_frame() {
             render_depth_pass_for_point_light(cmd, lights[i]);
         }
     }
+    transition_shadow_maps(cmd);
     begin_color_pass(cmd);
     if (use_debug_pipeline) {
         cmd.bind_descriptor_set(shadow_map_visualization_descriptor_set[frame_index]);
@@ -677,16 +757,17 @@ void Application::render_frame() {
         }
     }
     cmd.end_render_pass(); // color pass
-    cmd.image_barrier(
-       context->get_swapchain_texture(),
-       VK_IMAGE_ASPECT_COLOR_BIT,
-       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-       VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
-       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-       VK_ACCESS_MEMORY_READ_BIT,
-       1
+    cmd.barrier(
+        {{
+           .texture = context->get_swapchain_texture(),
+           .old_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+           .new_layout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+           .src_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+           .src_access = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
+           .dst_stages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+           .dst_access = VK_ACCESS_MEMORY_READ_BIT,
+        }},
+        {}
     );
     context->submit(cmd);
     context->end_frame();
@@ -719,16 +800,6 @@ void Application::render_depth_pass_for_spot_light(
     );
     draw_model(model, cmd, depth_pass_pipeline_ccw, depth_pass_pipeline_ccw_double_sided);
     cmd.end_render_pass();
-    cmd.image_barrier(
-        light.shadow_map,
-        depth_aspect,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_SHADER_READ_BIT
-    );
 }
 
 
@@ -786,31 +857,9 @@ void Application::render_depth_pass_for_point_light(
         draw_model(model, cmd, depth_pass_pipeline_cw, depth_pass_pipeline_cw_double_sided);
         cmd.end_render_pass();
     }
-    cmd.image_barrier(
-        light.shadow_map,
-        depth_aspect,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        6
-    );
 }
 
 void Application::render_depth_pass_for_directional_light(Morpho::Vulkan::CommandBuffer& cmd) {
-    cmd.image_barrier(
-        cascaded_shadow_maps,
-        depth_aspect,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_SHADER_READ_BIT,
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        3
-    );
    auto extent = context->get_swapchain_extent();
    extent.width = extent.height = std::max(extent.width, extent.height);
    cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f });
@@ -835,17 +884,6 @@ void Application::render_depth_pass_for_directional_light(Morpho::Vulkan::Comman
        draw_model(model, cmd, depth_pass_pipeline_ccw_depth_clamp, depth_pass_pipeline_ccw_depth_clamp_double_sided);
        cmd.end_render_pass();
    }
-   cmd.image_barrier(
-       cascaded_shadow_maps,
-       depth_aspect,
-       VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-       VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-       VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-       VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-       VK_ACCESS_SHADER_READ_BIT,
-       cascade_count
-    );
 }
 
 void Application::render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd) {
@@ -856,30 +894,6 @@ void Application::render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd) {
 }
 
 void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
-    // TODO: barrier rewrite right after cascaded shadow maps.
-    cmd.image_barrier(
-       context->get_swapchain_texture(),
-       VK_IMAGE_ASPECT_COLOR_BIT,
-       VK_IMAGE_LAYOUT_UNDEFINED,
-       // VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
-       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-       0,
-       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT,
-       1
-    );
-    cmd.image_barrier(
-        depth_buffer,
-        depth_aspect,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        1
-    );
     auto extent = context->get_swapchain_extent();
     cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
     cmd.set_scissor({ {0, 0}, extent });
@@ -945,48 +959,50 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
         .initial_data = &white_pixel,
         .initial_data_size = sizeof(white_pixel)
     });
-    cmd.image_barrier(
-        white_texture,
-        VK_IMAGE_ASPECT_COLOR_BIT,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        0,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_ACCESS_TRANSFER_WRITE_BIT
+    cmd.barrier(
+        {{
+            .texture = white_texture,
+            .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            .src_access = 0,
+            .dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
+            .dst_access = VK_ACCESS_TRANSFER_WRITE_BIT
+        }}, 
+        {}
     );
     cmd.copy_buffer_to_image(white_staging_buffer, white_texture, { (uint32_t)1, (uint32_t)1, (uint32_t)1 });
-    cmd.image_barrier(
-        white_texture,
-        VK_IMAGE_ASPECT_COLOR_BIT,
-        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_ACCESS_TRANSFER_WRITE_BIT,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        VK_ACCESS_SHADER_READ_BIT
-    );
     create_scene_resources(cmd);
-    cmd.image_barrier(
-        depth_buffer,
-        depth_aspect,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        0,
-        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
-    );
-    cmd.image_barrier(
-        cascaded_shadow_maps,
-        depth_aspect,
-        VK_IMAGE_LAYOUT_UNDEFINED,
-        VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-        0,
-        VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-        VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-        3
+    cmd.barrier(
+        {
+            {
+                .texture = white_texture,
+                .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+                .src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
+                .src_access = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+                .dst_access = VK_ACCESS_SHADER_READ_BIT
+            },
+            {
+                .texture = depth_buffer,
+                .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                .src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                .src_access = 0,
+                .dst_stages = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                .dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+            },
+            {
+                .texture = cascaded_shadow_maps,
+                .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                .src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+                .src_access = 0,
+                .dst_stages = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+                .dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+            },
+        },
+        {}
     );
 }
 
@@ -1491,6 +1507,7 @@ bool Application::load_scene(std::filesystem::path file_path) {
 
 void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
     std::vector<VkBufferUsageFlags> buffer_usages(model.buffers.size(), 0);
+    std::vector<Morpho::Vulkan::BufferBarrier> buffer_barriers(model.buffers.size());
     buffers.resize(model.buffers.size());
     for (auto& mesh : model.meshes) {
         for (auto& primitive : mesh.primitives) {
@@ -1516,17 +1533,30 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             .initial_data_size = buffer_size
         });
         cmd.copy_buffer(staging_buffer, buffers[i], buffer_size);
-        cmd.buffer_barrier(
-            buffers[i],
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_ACCESS_TRANSFER_WRITE_BIT,
-            VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-            VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
-            0,
-            VK_WHOLE_SIZE
-        );
+        buffer_barriers[i] = {
+            .buffer = buffers[i],
+            .src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
+            .src_access = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .dst_stages = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
+            .dst_access = VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
+        };
     }
     textures.resize(model.textures.size());
+    texture_barriers.resize(model.textures.size());
+    for (uint32_t i = 0; i < model.textures.size(); i++) {
+        texture_barriers[i] = {
+            .texture = textures[i],
+            .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+            .src_access = 0,
+            .dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
+            .dst_access = VK_ACCESS_TRANSFER_WRITE_BIT
+        };
+    }
+    cmd.barrier(
+        Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()), 
+        Morpho::make_const_span(buffer_barriers.data(), buffer_barriers.size())
+    );
     for (uint32_t i = 0; i < model.textures.size(); i++) {
         auto& texture = model.textures[i];
         auto gltf_image = model.images[texture.source];
@@ -1542,30 +1572,21 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             .initial_data = gltf_image.image.data(),
             .initial_data_size = image_size
         });
-        cmd.image_barrier(
-            textures[i],
-            VK_IMAGE_ASPECT_COLOR_BIT,
-            VK_IMAGE_LAYOUT_UNDEFINED,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            0,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_ACCESS_TRANSFER_WRITE_BIT
-        );
         cmd.copy_buffer_to_image(
             staging_image_buffer, textures[i], { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 }
         );
-        cmd.image_barrier(
-            textures[i],
-            VK_IMAGE_ASPECT_COLOR_BIT,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_ACCESS_TRANSFER_WRITE_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            VK_ACCESS_SHADER_READ_BIT
-        );
+        texture_barriers[i] = {
+            .texture = textures[i],
+            .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
+            .src_access = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .dst_access = VK_ACCESS_SHADER_READ_BIT
+        };
     }
+    cmd.barrier(Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()), {});
+    texture_barriers.clear();
 }
 
 void Application::draw_model(
