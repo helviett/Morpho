@@ -1,4 +1,7 @@
 #version 450
+#extension GL_GOOGLE_include_directive : enable
+#include "globals.h"
+#include "pbr.h"
 
 struct PointLight {
     vec3 position;
@@ -18,9 +21,11 @@ layout(set = 1, binding = 2) uniform samplerCubeShadow shadow_map;
 
 layout(set = 2, binding = 0) uniform Materal {
     vec4 base_color_factor;
+    vec2 metalness_roughness_factor;
 } material;
 layout(set = 2, binding = 1) uniform sampler2D base_color_texture;
 layout(set = 2, binding = 2) uniform sampler2D normal_texture;
+layout(set = 2, binding = 3) uniform sampler2D metalness_roughness_texture;
 
 
 
@@ -33,10 +38,10 @@ layout(location = 4) in vec3 in_light_space_position;
 layout(location = 0) out vec4 out_color;
 
 vec3 fetch_normal_vector() {
-    vec3 m = texture(normal_texture, in_uv).xyz;
+    vec3 m = normalize(texture(normal_texture, in_uv).xyz * 2.0 - 1.0);
     vec3 n = normalize(in_normal);
     vec3 t = normalize(in_tangent.xyz - dot(in_tangent.xyz, n) * n);
-    vec3 b = in_tangent.w * cross(n, t);
+    vec3 b = sign(in_tangent.w) * cross(n, t);
     return m.x * t + m.y * b + m.z * n;
 }
 
@@ -52,12 +57,12 @@ vec3 calculate_light(vec3 light_dir, vec3 normal, vec3 view_dir, vec3 color) {
     return diffuse_power * color + specular_power * color;
 }
 
-vec3 calculate_point_light(PointLight light, vec3 normal, vec3 view_dir) {
+vec3 calculate_point_light(PointLight light, vec3 albedo, vec3 normal, vec3 view_dir, float metalness, float roughness) {
     vec3 light_dir = light.position - in_position;
     float r = length(light_dir);
-    vec3 color = calculate_light(normalize(light_dir), normal, view_dir, light.color.rgb);
+    vec3 color = calculate_light(normalize(light_dir), normal, view_dir, albedo, metalness, roughness);
     float attenuation = calculate_distance_attenuation(r, light.radius);
-    return light.intensity * attenuation * color;
+    return light.intensity * attenuation * color * light.color.rgb;
 }
 
 float calculate_shadow(vec3 position) {
@@ -72,8 +77,9 @@ float calculate_shadow(vec3 position) {
 
 void main() {
     vec3 base_color = texture(base_color_texture, in_uv).rgb * material.base_color_factor.rgb;
+    vec2 metalness_roughness = texture(metalness_roughness_texture, in_uv).bg * material.metalness_roughness_factor;
     vec3 normal = fetch_normal_vector();
-    vec3 color = calculate_point_light(point_light.data, normal, -in_light_space_position.xyz);
+    vec3 light = calculate_point_light(point_light.data, base_color, normal, normalize(-in_light_space_position.xyz), metalness_roughness.x, metalness_roughness.y);
     float shadow = calculate_shadow(in_light_space_position.xyz);
-    out_color = vec4(color * base_color * shadow, 1.0);
+    out_color = vec4(light * shadow, 1.0);
 }

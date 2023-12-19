@@ -61,10 +61,12 @@ struct PointLight {
 };
 
 struct MaterialParameters {
-    // 16 bytes
+    // 24 bytes
     glm::vec4 base_color_factor;
-    // 256 - 16 bytes
-    uint32_t padding[60];
+    float metalness_factor;
+    float roughness_factor;
+    // 256 - 24 bytes
+    uint32_t padding[58];
 };
 
 struct SpotLight {
@@ -119,6 +121,11 @@ struct CsmUniform {
     glm::vec4 ranges[cascade_count];
     glm::vec4 offsets[cascade_count];
     glm::vec4 scales[cascade_count];
+};
+
+struct ModelUniform {
+    glm::mat4 transform;
+    glm::mat4 inverse_transpose_transform;
 };
 
 class Application {

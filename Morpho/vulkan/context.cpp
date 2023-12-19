@@ -345,6 +345,7 @@ void Context::create_swapchain() {
         VkImageView image_view;
         vkCreateImageView(device, &info, nullptr, &image_view);
         swapchain_textures[i].image_view = image_view;
+        swapchain_textures[i].aspect = VK_IMAGE_ASPECT_COLOR_BIT;
     }
 }
 

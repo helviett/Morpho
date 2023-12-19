@@ -22,7 +22,8 @@ void traverse_node(
     const tinygltf::Model& model,
     const tinygltf::Node& node,
     const glm::mat4& parent_to_world,
-    std::vector<glm::mat4>& transforms
+    uint8_t* transforms,
+    uint64_t alignment
 ) {
     glm::mat4 local_to_world = glm::mat4(1.0f);
     if (node.matrix.size() == 16) {
@@ -57,21 +58,25 @@ void traverse_node(
     }
     local_to_world = parent_to_world * local_to_world;
     if (node.mesh >= 0) {
-        transforms[node.mesh] = local_to_world;
+        uint64_t offset = node.mesh * Morpho::round_up(sizeof(ModelUniform), alignment);
+        ModelUniform* uniform = (ModelUniform*)(transforms + offset);
+        uniform->transform = local_to_world;
+        uniform->inverse_transpose_transform = glm::transpose(glm::affineInverse(local_to_world));
     }
     for (const auto& child : node.children) {
-        traverse_node(model, model.nodes[child], local_to_world, transforms);
+        traverse_node(model, model.nodes[child], local_to_world, transforms, alignment);
     }
 }
 
 void precalculate_transforms(
     const tinygltf::Model& model,
-    std::vector<glm::mat4>& transforms
+    uint8_t* transforms,
+    uint64_t alignment
 ) {
     for (auto& scene : model.scenes) {
         for (auto& node : scene.nodes) {
             glm::mat4 local_to_world = glm::mat4(1.0f);
-            traverse_node(model, model.nodes[node], local_to_world, transforms);
+            traverse_node(model, model.nodes[node], local_to_world, transforms, alignment);
         }
     }
 }
@@ -160,7 +165,7 @@ void Application::init() {
         set1_bindings[1] = { 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
         // Shadow map.
         set1_bindings[2] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
-        pipeline_layout_info.set_binding_count[2] = 3;
+        pipeline_layout_info.set_binding_count[2] = 4;
         pipeline_layout_info.max_descriptor_set_counts[2] = model.materials.size();
         // Material data.
         set2_bindings[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
@@ -168,6 +173,8 @@ void Application::init() {
         set2_bindings[1] = { 1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
         // Normal map.
         set2_bindings[2] = { 2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
+        // Metallness-roughness texture.
+        set2_bindings[3] = { 3, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, };
         pipeline_layout_info.set_binding_count[3] = 1;
         pipeline_layout_info.max_descriptor_set_counts[3] = model.meshes.size();
         set3_bindings[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
@@ -342,13 +349,46 @@ void Application::init() {
         VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
         VMA_MEMORY_USAGE_GPU_ONLY
     );
+
+    std::vector<VkFormat> texture_formats(model.textures.size(), VK_FORMAT_UNDEFINED);
+    // determine texture formats cause:
+    // 1. stb_image / tinygltf doesn't provide any info on color space
+    // 2. color space is *always* set to wrong one and, according to the spec, needs to be ignored (w t f)
+    for (uint32_t material_index = 0; material_index < model.materials.size(); material_index++) {
+        auto& material = model.materials[material_index];
+        auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
+        auto normal_texture_index = material.normalTexture.index;
+        auto metalic_roughness_texture_index = material.pbrMetallicRoughness.metallicRoughnessTexture.index;
+        if (metalic_roughness_texture_index >= 0) {
+            assert(
+                texture_formats[metalic_roughness_texture_index] == VK_FORMAT_UNDEFINED
+                || texture_formats[metalic_roughness_texture_index] == VK_FORMAT_R8G8B8A8_UNORM
+            );
+            texture_formats[metalic_roughness_texture_index] = VK_FORMAT_R8G8B8A8_UNORM;
+        }
+        if (normal_texture_index >= 0) {
+            assert(
+                texture_formats[normal_texture_index] == VK_FORMAT_UNDEFINED
+                || texture_formats[normal_texture_index] == VK_FORMAT_R8G8B8A8_UNORM
+            );
+            texture_formats[normal_texture_index] = VK_FORMAT_R8G8B8A8_UNORM;
+        }
+        if (base_color_texture_index >= 0) {
+            assert(
+                texture_formats[base_color_texture_index] == VK_FORMAT_UNDEFINED
+                || texture_formats[base_color_texture_index] == VK_FORMAT_R8G8B8A8_SRGB
+            );
+            texture_formats[base_color_texture_index] = VK_FORMAT_R8G8B8A8_SRGB;
+        }
+    }
+
     textures.resize(model.textures.size());
     for (uint32_t i = 0; i < model.textures.size(); i++) {
         auto& texture = model.textures[i];
         auto gltf_image = model.images[texture.source];
         assert(gltf_image.component == 4);
         auto image_size = (VkDeviceSize)(gltf_image.width * gltf_image.height * gltf_image.component * (gltf_image.bits / 8));
-        VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
+        VkFormat format = texture_formats[i];
         auto staging_image_buffer = context->acquire_staging_buffer({
             .size = image_size,
             .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
@@ -374,6 +414,74 @@ void Application::init() {
             gltf_to_filter(gltf_sampler.magFilter)
         );
     }
+    material_descriptor_sets.resize(model.materials.size());
+    std::vector<MaterialParameters> material_parameters(model.materials.size());
+    material_buffer = context->acquire_buffer({
+        .size = model.materials.size() * sizeof(MaterialParameters),
+        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+        .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
+    });
+    for (uint32_t material_index = 0; material_index < model.materials.size(); material_index++) {
+        auto& material = model.materials[material_index];
+        material_descriptor_sets[material_index] = context->create_descriptor_set(light_pipeline_layout, 2);
+        uint64_t offset = material_index * sizeof(MaterialParameters);
+        auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
+        auto base_color_texture = base_color_texture_index < 0
+            ? white_texture : textures[base_color_texture_index];
+        auto base_color_sampler_index = base_color_texture_index < 0
+            ? -1 : model.textures[base_color_texture_index].sampler;
+        auto base_color_sampler = base_color_sampler_index < 0 ? default_sampler : samplers[base_color_sampler_index];
+        auto normal_texture_index = material.normalTexture.index;
+        auto normal_texture = normal_texture_index < 0 ? white_texture : textures[normal_texture_index];
+        auto normal_texture_sampler_index = normal_texture_index < 0
+            ? -1 : model.textures[normal_texture_index].sampler;
+        auto normal_texture_sampler = normal_texture_sampler_index < 0
+            ? default_sampler : samplers[normal_texture_sampler_index];
+        auto metalic_roughness_texture_index = material.pbrMetallicRoughness.metallicRoughnessTexture.index;
+        auto metalic_roughness_texture = metalic_roughness_texture_index < 0
+            ? white_texture : textures[metalic_roughness_texture_index];
+        auto metalic_roughness_texture_sampler_index = metalic_roughness_texture_index < 0
+            ? -1 : model.textures[metalic_roughness_texture_index].sampler;
+        auto metalic_roughness_texture_sampler = metalic_roughness_texture_index < 0
+            ? default_sampler : samplers[metalic_roughness_texture_sampler_index];
+        context->update_descriptor_set(
+            material_descriptor_sets[material_index],
+            {
+                {
+                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ material_buffer, offset, sizeof(MaterialParameters), }}
+                },
+                {
+                    .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .texture_infos = {{ base_color_texture, base_color_sampler, }}
+                },
+                {
+                    .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .texture_infos = {{ normal_texture, normal_texture_sampler, }}
+                },
+                {
+                    .binding = 3, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+                    .texture_infos = {{ metalic_roughness_texture, metalic_roughness_texture_sampler, }}
+                }
+            }
+        );
+        auto base_color_factor = glm::vec4(
+            material.pbrMetallicRoughness.baseColorFactor[0],
+            material.pbrMetallicRoughness.baseColorFactor[1],
+            material.pbrMetallicRoughness.baseColorFactor[2],
+            material.pbrMetallicRoughness.baseColorFactor[3]
+        );
+        material_parameters[material_index].base_color_factor = base_color_factor;
+        material_parameters[material_index].metalness_factor = material.pbrMetallicRoughness.metallicFactor;
+        material_parameters[material_index].roughness_factor = material.pbrMetallicRoughness.roughnessFactor;
+    }
+    context->update_buffer(
+        material_buffer,
+        0,
+        material_parameters.data(),
+        material_parameters.size() * sizeof(MaterialParameters)
+    );
+
     const uint64_t alignment = context->get_uniform_buffer_alignment();
     const uint64_t globals_size = Morpho::round_up(sizeof(Globals), alignment);
     globals_buffer = context->acquire_buffer({
@@ -396,78 +504,28 @@ void Application::init() {
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
         shadow_map_visualization_descriptor_set[i] = context->create_descriptor_set(light_pipeline_layout, 1);
     }
-    material_descriptor_sets.resize(model.materials.size());
-    std::vector<MaterialParameters> material_parameters(model.materials.size());
-    material_buffer = context->acquire_buffer({
-        .size = model.materials.size() * sizeof(MaterialParameters),
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
-    });
-    for (uint32_t material_index = 0; material_index < model.materials.size(); material_index++) {
-        auto& material = model.materials[material_index];
-        material_descriptor_sets[material_index] = context->create_descriptor_set(light_pipeline_layout, 2);
-        uint64_t offset = material_index * sizeof(MaterialParameters);
-        auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
-        auto base_color_texture = base_color_texture_index < 0 ? white_texture : textures[base_color_texture_index];
-        auto base_color_sampler_index = base_color_texture_index < 0
-            ? -1 : model.textures[base_color_texture_index].sampler;
-        auto base_color_sampler = base_color_sampler_index < 0 ? default_sampler : samplers[base_color_sampler_index];
-        auto normal_texture_index = material.normalTexture.index;
-        auto normal_texture = normal_texture_index < 0 ? white_texture : textures[normal_texture_index];
-        auto normal_texture_sampler_index = normal_texture_index < 0 ? -1 : model.textures[normal_texture_index].sampler;
-        auto normal_texture_sampler = normal_texture_sampler_index < 0
-            ? default_sampler : samplers[normal_texture_sampler_index];
-        context->update_descriptor_set(
-            material_descriptor_sets[material_index],
-            {
-                {
-                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .buffer_infos = {{ material_buffer, offset, sizeof(glm::vec4), }}
-                },
-                {
-                    .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    .texture_infos = {{ base_color_texture, base_color_sampler, }}
-                },
-                {
-                    .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    .texture_infos = {{ normal_texture, normal_texture_sampler, }}
-                },
-            }
-        );
-        auto base_color_factor = glm::vec4(
-            material.pbrMetallicRoughness.baseColorFactor[0],
-            material.pbrMetallicRoughness.baseColorFactor[1],
-            material.pbrMetallicRoughness.baseColorFactor[2],
-            material.pbrMetallicRoughness.baseColorFactor[3]
-        );
-        material_parameters[material_index].base_color_factor = base_color_factor;
-    }
-    context->update_buffer(
-        material_buffer,
-        0,
-        material_parameters.data(),
-        material_parameters.size() * sizeof(MaterialParameters)
-    );
 
     mesh_descriptor_sets.resize(model.meshes.size());
-    std::vector<glm::mat4> transforms(model.meshes.size());
-    precalculate_transforms(model, transforms);
+    uint64_t model_uniform_data_size = model.meshes.size() * Morpho::round_up(sizeof(ModelUniform), alignment);
+    uint8_t* model_uniform_data = new uint8_t[model_uniform_data_size];
+    precalculate_transforms(model, model_uniform_data, alignment);
     mesh_uniforms = context->acquire_buffer({
-        .size = model.meshes.size() * Morpho::round_up(sizeof(glm::mat4), alignment),
+        .size = model.meshes.size() * Morpho::round_up(sizeof(ModelUniform), alignment),
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::CAN_BE_MAPPED,
-        .initial_data = transforms.data(),
-        .initial_data_size = transforms.size() * Morpho::round_up(sizeof(glm::mat4), alignment)
+        .initial_data = model_uniform_data,
+        .initial_data_size = model_uniform_data_size
     });
+    delete [] model_uniform_data;
     for (uint32_t mesh_index = 0; mesh_index < model.meshes.size(); mesh_index++) {
         mesh_descriptor_sets[mesh_index] = context->create_descriptor_set(light_pipeline_layout, 3);
-        uint64_t offset = mesh_index * Morpho::round_up(sizeof(glm::mat4), alignment);
+        uint64_t offset = mesh_index * Morpho::round_up(sizeof(ModelUniform), alignment);
         context->update_descriptor_set(
             mesh_descriptor_sets[mesh_index],
             {
                 {
                     .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .buffer_infos = {{ mesh_uniforms, offset, sizeof(glm::mat4), }}
+                    .buffer_infos = {{ mesh_uniforms, offset, sizeof(ModelUniform), }}
                 },
             }
         );
@@ -617,7 +675,7 @@ void Application::main_loop() {
 }
 
 void Application::begin_frame(Morpho::Vulkan::CommandBuffer& cmd) {
-    // Transition all RTs to layout required in the beginning of the frame. 
+    // Transition all RTs to layout required in the beginning of the frame.
     texture_barriers.push_back({
        .texture = context->get_swapchain_texture(),
        .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -649,12 +707,15 @@ void Application::begin_frame(Morpho::Vulkan::CommandBuffer& cmd) {
         const Light& light = lights[i];
         texture_barriers.push_back({
             .texture = light.shadow_map,
-            .old_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-            .src_stages = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-            .src_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            .dst_access = VK_ACCESS_SHADER_READ_BIT
+            // Need some sort of ResourceManager that can transition image to initial state
+            // in order to not track if it's the first usage of the RT.
+            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
+            //.old_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            .src_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+            .src_access = VK_ACCESS_SHADER_READ_BIT,
+            .dst_stages = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
+            .dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         });
     }
     cmd.barrier(
@@ -674,7 +735,7 @@ void Application::transition_shadow_maps(Morpho::Vulkan::CommandBuffer& cmd) {
        .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
        .dst_access = VK_ACCESS_SHADER_READ_BIT,
     });
-   for (uint32_t i = 0; i < lights.size(); i++) { 
+    for (uint32_t i = 0; i < lights.size(); i++) {
         const Light& light = lights[i];
         texture_barriers.push_back({
             .texture = light.shadow_map,
@@ -685,7 +746,7 @@ void Application::transition_shadow_maps(Morpho::Vulkan::CommandBuffer& cmd) {
             .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             .dst_access = VK_ACCESS_SHADER_READ_BIT,
         });
-   }
+    }
     cmd.barrier(
         Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()),
         {}
@@ -967,7 +1028,7 @@ void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd
             .src_access = 0,
             .dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
             .dst_access = VK_ACCESS_TRANSFER_WRITE_BIT
-        }}, 
+        }},
         {}
     );
     cmd.copy_buffer_to_image(white_staging_buffer, white_texture, { (uint32_t)1, (uint32_t)1, (uint32_t)1 });
@@ -1277,7 +1338,6 @@ void Application::update(float delta) {
         if (change_x != 0 || change_z != 0) {
             sun.direction.x += change_x * 0.1 * delta;
             sun.direction.z += change_z * 0.1 * delta;
-            //sun.direction.y = -1.0f;
             sun.direction = glm::normalize(sun.direction);
         }
     }
@@ -1307,7 +1367,7 @@ void Application::update(float delta) {
         SpotLight light_data = SpotLight(
             camera.get_position(),
             camera.get_forward(),
-            glm::vec3(1.0f, 0.0f, 0.0f),
+            glm::vec3(1.0f, 1.0f, 1.0f),
             14.0f,
             3.0f,
             cos(glm::radians(17.5f)),
@@ -1485,6 +1545,11 @@ void Application::calculate_cascades() {
         &csm_uniform,
         sizeof(csm_uniform)
     );
+    memcpy(
+        directional_light_uniform_buffer.mapped + frame_index * Morpho::round_up(sizeof(DirectionalLight), alignment),
+        &sun,
+        sizeof(sun)
+    );
 }
 
 bool Application::load_scene(std::filesystem::path file_path) {
@@ -1554,7 +1619,7 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
         };
     }
     cmd.barrier(
-        Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()), 
+        Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()),
         Morpho::make_const_span(buffer_barriers.data(), buffer_barriers.size())
     );
     for (uint32_t i = 0; i < model.textures.size(); i++) {
@@ -1748,7 +1813,7 @@ VkFilter Application::gltf_to_filter(int filter) {
         {TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_NEAREST, VK_FILTER_LINEAR},
         {TINYGLTF_TEXTURE_FILTER_LINEAR_MIPMAP_LINEAR, VK_FILTER_LINEAR},
     };
-    return map.at(filter);
+    return filter < 0 ? VK_FILTER_LINEAR : map.at(filter);
 }
 
 VkSamplerAddressMode Application::gltf_to_sampler_address_mode(int address_mode) {

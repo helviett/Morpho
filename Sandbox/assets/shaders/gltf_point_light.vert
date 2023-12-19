@@ -8,7 +8,8 @@ layout(set = 1, binding = 0) uniform LightViewPorjectionBlock {
 } lvp;
 
 layout(set = 3, binding = 0) uniform ModelBlock {
-    mat4 t;
+    mat4 transform;
+    mat4 inv_transpose_transform;
 } model;
 
 
@@ -24,12 +25,12 @@ layout(location = 3) out vec4 out_tangent;
 layout(location = 4) out vec3 out_light_space_position;
 
 void main() {
-    vec4 position = model.t * vec4(in_position, 1.0);
+    vec4 position = model.transform * vec4(in_position, 1.0);
     gl_Position = globals.proj * globals.view * position;
     out_position = position.xyz;
     out_uv = in_uv;
-    out_normal = (model.t * vec4(in_normal, 0.0)).xyz;
-    out_tangent = model.t * vec4(in_tangent.xyz, 0.0);
+    out_normal = (model.inv_transpose_transform * vec4(in_normal, 0.0)).xyz;
+    out_tangent = model.transform * vec4(in_tangent.xyz, 0.0);
     out_tangent.w = in_tangent.w;
     out_light_space_position = (lvp.view * position).xyz;
 }
