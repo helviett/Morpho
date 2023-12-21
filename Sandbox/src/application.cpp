@@ -1,4 +1,6 @@
 #include "application.hpp"
+#include <algorithm>
+#include <bit>
 #include <fstream>
 #include <glm/ext/matrix_transform.hpp>
 #include <glm/ext/quaternion_geometric.hpp>
@@ -268,7 +270,7 @@ void Application::init() {
     }
     {
         // Depth pass.
-        pipeline_info.depth_bias_constant_factor = 2.0f;
+        pipeline_info.depth_bias_constant_factor = 5.0f;
         pipeline_info.depth_bias_slope_factor = 3.0;
         pipeline_info.shader_count = 1;
         pipeline_info.shaders[0] = gltf_depth_pass_vertex_shader;
@@ -305,13 +307,12 @@ void Application::init() {
         shadow_map_visualization_pipeline = context->create_pipeline(pipeline_info);
     }
 
-    default_sampler = context->acquire_sampler(VK_SAMPLER_ADDRESS_MODE_REPEAT, VK_FILTER_LINEAR);
-    shadow_sampler = context->acquire_sampler(
-        VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER,
-        VK_FILTER_LINEAR,
-        VK_TRUE,
-        VK_COMPARE_OP_LESS
-    );
+    default_sampler = context->create_sampler({ .max_anisotropy = 4.0f, });
+    shadow_sampler = context->create_sampler({
+        .compare_enable = VK_TRUE,
+        .compare_op = VK_COMPARE_OP_LESS,
+        .max_anisotropy = 4.0f,
+    });
 
     std::vector<VkBufferUsageFlags> buffer_usages(model.buffers.size(), 0);
     buffers.resize(model.buffers.size());
@@ -343,12 +344,11 @@ void Application::init() {
             .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | buffer_usages[i]
         });
     }
-    white_texture = context->create_texture(
-        { 1, 1, 1 },
-        VK_FORMAT_R8G8B8A8_UNORM,
-        VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
+    white_texture = context->create_texture({
+        .extent = { 1, 1, 1 },
+        .format = VK_FORMAT_R8G8B8A8_UNORM,
+        .image_usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+    });
 
     std::vector<VkFormat> texture_formats(model.textures.size(), VK_FORMAT_UNDEFINED);
     // determine texture formats cause:
@@ -396,23 +396,25 @@ void Application::init() {
             .initial_data = gltf_image.image.data(),
             .initial_data_size = image_size
         });
-        textures[i] = context->create_texture(
-            { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 },
-            format,
-            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-            VMA_MEMORY_USAGE_GPU_ONLY
-        );
+        uint32_t mip_level_count = std::bit_width((uint32_t)std::max(gltf_image.width, gltf_image.height));
+        textures[i] = context->create_texture({
+            .extent = { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 },
+            .format = format,
+            .image_usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+            .mip_level_count = mip_level_count,
+        });
     }
     samplers.resize(model.samplers.size());
     for (uint32_t i = 0; i < model.samplers.size(); i++) {
         auto gltf_sampler = model.samplers[i];
-        samplers[i] = context->acquire_sampler(
-            gltf_to_sampler_address_mode(gltf_sampler.wrapT),
-            gltf_to_sampler_address_mode(gltf_sampler.wrapS),
-            gltf_to_sampler_address_mode(gltf_sampler.wrapT),
-            gltf_to_filter(gltf_sampler.minFilter),
-            gltf_to_filter(gltf_sampler.magFilter)
-        );
+        samplers[i] = context->create_sampler({
+            .address_mode_u = gltf_to_sampler_address_mode(gltf_sampler.wrapT),
+            .address_mode_v = gltf_to_sampler_address_mode(gltf_sampler.wrapS),
+            .address_mode_w = gltf_to_sampler_address_mode(gltf_sampler.wrapT),
+            .min_filter = gltf_to_filter(gltf_sampler.minFilter),
+            .mag_filter = gltf_to_filter(gltf_sampler.magFilter),
+            .max_anisotropy = 4.0f,
+        });
     }
     material_descriptor_sets.resize(model.materials.size());
     std::vector<MaterialParameters> material_parameters(model.materials.size());
@@ -543,12 +545,11 @@ void Application::init() {
         .map = BufferMap::PERSISTENTLY_MAPPED,
     });
     auto extent = context->get_swapchain_extent();
-    depth_buffer = context->create_texture(
-        { extent.width, extent.height, 1 },
-        depth_format,
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY
-    );
+    depth_buffer = context->create_texture({
+        .extent = { extent.width, extent.height, 1 },
+        .format = depth_format,
+        .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+    });
     directional_light_uniform_buffer = context->acquire_buffer({
         .size = Morpho::round_up(sizeof(DirectionalLight), alignment) * frame_in_flight_count,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
@@ -560,13 +561,12 @@ void Application::init() {
         .map = BufferMap::PERSISTENTLY_MAPPED
     });
     uint32_t max_side_length = std::max(extent.width, extent.height);
-    cascaded_shadow_maps = context->create_texture(
-        { max_side_length, max_side_length, 1 },
-        depth_format,
-        VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-        VMA_MEMORY_USAGE_GPU_ONLY,
-        cascade_count
-    );
+    cascaded_shadow_maps = context->create_texture({
+        .extent = { max_side_length, max_side_length, 1 },
+        .format = depth_format,
+        .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        .array_layer_count = cascade_count,
+    });
     for (uint32_t frame_index = 0; frame_index < frame_in_flight_count; frame_index++) {
         csm_descriptor_sets[frame_index] = context->create_descriptor_set(light_pipeline_layout, 1);
         uint64_t shadow_uniform_offset = frame_index * Morpho::round_up(sizeof(CsmUniform), alignment);
@@ -1373,12 +1373,11 @@ void Application::update(float delta) {
             cos(glm::radians(17.5f)),
             cos(glm::radians(12.5f))
         );
-        auto shadow_map = context->create_texture(
-            { extent.width, extent.height, 1 },
-            depth_format,
-            VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-            VMA_MEMORY_USAGE_GPU_ONLY
-        );
+        auto shadow_map = context->create_texture({
+            .extent = { extent.width, extent.height, 1 },
+            .format = depth_format,
+            .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+        });
         Light light{};
         light.light_type = LightType::SpotLight;
         light.light_data.spot_light = light_data;
@@ -1394,14 +1393,13 @@ void Application::update(float delta) {
         );
         auto face_extent = extent;
         face_extent.width = face_extent.height = std::max(face_extent.width, face_extent.height);
-        auto shadow_map = context->create_texture(
-           { face_extent.width, face_extent.height, 1 },
-           depth_format,
-           VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-           VMA_MEMORY_USAGE_GPU_ONLY,
-           6,
-           VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT
-        );
+        auto shadow_map = context->create_texture({
+           .extent = { face_extent.width, face_extent.height, 1 },
+           .format = depth_format,
+           .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+           .array_layer_count = 6,
+           .flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT
+        });
         Light light{};
         light.light_type = LightType::PointLight;
         light.light_data.point_light = light_data;
@@ -1615,13 +1613,14 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
             .src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
             .src_access = 0,
             .dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
-            .dst_access = VK_ACCESS_TRANSFER_WRITE_BIT
+            .dst_access = VK_ACCESS_TRANSFER_WRITE_BIT,
         };
     }
     cmd.barrier(
         Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()),
         Morpho::make_const_span(buffer_barriers.data(), buffer_barriers.size())
     );
+    uint32_t max_mip_level = 0;
     for (uint32_t i = 0; i < model.textures.size(); i++) {
         auto& texture = model.textures[i];
         auto gltf_image = model.images[texture.source];
@@ -1643,12 +1642,87 @@ void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
         texture_barriers[i] = {
             .texture = textures[i],
             .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .new_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .mip_level_count = 1,
             .src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
             .src_access = VK_ACCESS_TRANSFER_WRITE_BIT,
+            .dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
+            .dst_access = VK_ACCESS_TRANSFER_READ_BIT,
+        };
+        uint32_t mip_count = (uint32_t)std::bit_width((uint32_t)std::max(gltf_image.width, gltf_image.height));
+        max_mip_level = std::max(max_mip_level, mip_count);
+    }
+    cmd.barrier(Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()), {});
+    texture_barriers.clear();
+    for (uint32_t mip_level = 1; mip_level < max_mip_level; mip_level++) {
+        for (uint32_t i = 0; i < model.textures.size(); i++) {
+            auto& texture = model.textures[i];
+            auto gltf_image = model.images[texture.source];
+            uint32_t mip_count = (uint32_t)std::bit_width((uint32_t)std::max(gltf_image.width, gltf_image.height));
+            if (mip_count <= mip_level) {
+                continue;
+            }
+            cmd.blit({
+                .src_texture = textures[i],
+                .src_texture_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                .dst_texture = textures[i],
+                .dst_texture_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .regions = {{
+                    .src_subresource = {
+                        .mip_level = mip_level - 1,
+                        .base_array_layer = 0,
+                        .layer_count = 1,
+                    },
+                    .src_offsets = {
+                        {0, 0, 0},
+                        {
+                            std::max(gltf_image.width >> (mip_level - 1), 1),
+                            std::max(gltf_image.width >> (mip_level - 1), 1),
+                            1
+                        }
+                    },
+                    .dst_subresource = {
+                        .mip_level = mip_level,
+                        .base_array_layer = 0,
+                        .layer_count = 1,
+                    },
+                    .dst_offsets = {
+                        {0, 0, 0},
+                        {
+                            std::max(gltf_image.width >> (mip_level), 1),
+                            std::max(gltf_image.width >> (mip_level), 1),
+                            1
+                        }
+                    },
+
+                }}
+            });
+            // TODO: keeps mips in Texture to avoid calculating mips and unnecessary barriers.
+            texture_barriers.push_back({
+                .texture = textures[i],
+                .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+                .new_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+                .base_mip_level = mip_level,
+                .mip_level_count = 1,
+                .src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
+                .src_access = VK_ACCESS_TRANSFER_WRITE_BIT,
+                .dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
+                .dst_access = VK_ACCESS_TRANSFER_READ_BIT,
+            });
+        }
+        cmd.barrier(Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()), {});
+        texture_barriers.clear();
+    }
+    for (uint32_t i = 0; i < textures.size(); i++) {
+        texture_barriers.push_back({
+            .texture = textures[i],
+            .old_layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+            .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+            .src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
+            .src_access = VK_ACCESS_TRANSFER_READ_BIT,
             .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             .dst_access = VK_ACCESS_SHADER_READ_BIT
-        };
+        });
     }
     cmd.barrier(Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()), {});
     texture_barriers.clear();

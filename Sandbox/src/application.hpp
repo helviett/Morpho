@@ -141,7 +141,7 @@ private:
     // (For depth + stencil format attachment requires both DEPTH and STENCIL even if stencil is not used,
     // but to sample depth texture we need view with only DEPTH aspect,
     // perhaps there should be RenderTarget structure that creates all necessary views upfront)
-    static const VkFormat depth_format = VK_FORMAT_D16_UNORM;
+    static const VkFormat depth_format = VK_FORMAT_D32_SFLOAT;
     static const VkImageAspectFlags depth_aspect = VK_IMAGE_ASPECT_DEPTH_BIT;
 
     Input input;

@@ -117,5 +117,6 @@ void main() {
     //out_color.xyz *= cascade_colors[cascade_index];
     out_color.xyz += ambient;
     //out_color.xyz = normal * 0.5 + 0.5;
-    //out_color.rgb = out_color.rgb / (out_color.rgb + vec3(1.0));
+    // tonemapping:
+    out_color.rgb = out_color.rgb / (out_color.rgb + vec3(1.0));
 }
