@@ -831,30 +831,23 @@ void Context::destroy_pipline_layout(const PipelineLayout &pipeline_layout)
     }
 }
 
-Texture Context::create_texture(
-    VkExtent3D extent,
-    VkFormat format,
-    VkImageUsageFlags image_usage,
-    VmaMemoryUsage memory_usage,
-    uint32_t array_layers,
-    VkImageCreateFlags flags
-) {
+Texture Context::create_texture(const TextureInfo& texture_info) {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-    image_info.flags = flags;
-    image_info.extent = extent;
+    image_info.flags = texture_info.flags;
+    image_info.extent = texture_info.extent;
     image_info.imageType = VK_IMAGE_TYPE_2D;
-    image_info.format = format;
-    image_info.mipLevels = 1;
-    image_info.arrayLayers = array_layers;
-    image_info.usage = image_usage;
+    image_info.format = texture_info.format;
+    image_info.mipLevels = texture_info.mip_level_count;
+    image_info.arrayLayers = texture_info.array_layer_count;
+    image_info.usage = texture_info.image_usage;
     image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
     image_info.samples = VK_SAMPLE_COUNT_1_BIT;
     image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
     image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
 
     VmaAllocationCreateInfo allocation_create_info{};
-    allocation_create_info.usage = memory_usage;
+    allocation_create_info.usage = texture_info.memory_usage;
 
     VkImage vk_image;
     VmaAllocation allocation;
@@ -862,23 +855,23 @@ Texture Context::create_texture(
     vmaCreateImage(allocator, &image_info, &allocation_create_info, &vk_image, &allocation, &allocation_info);
 
     VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
-    if (array_layers == 6 && (flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) != 0) {
+    if (texture_info.array_layer_count == 6 && (texture_info.flags & VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT) != 0) {
         view_type = VK_IMAGE_VIEW_TYPE_CUBE;
-    } else if (array_layers > 1) {
+    } else if (texture_info.array_layer_count > 1) {
         view_type = VK_IMAGE_VIEW_TYPE_2D_ARRAY;
     }
 
-    VkImageAspectFlags aspect = derive_aspect(format);
+    VkImageAspectFlags aspect = derive_aspect(texture_info.format);
 
     VkImageViewCreateInfo image_view_info{};
     image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-    image_view_info.format = format;
+    image_view_info.format = texture_info.format;
     image_view_info.viewType = view_type;
     image_view_info.subresourceRange.aspectMask = aspect;
     image_view_info.subresourceRange.baseArrayLayer = 0;
-    image_view_info.subresourceRange.layerCount = array_layers;
+    image_view_info.subresourceRange.layerCount = texture_info.array_layer_count;
     image_view_info.subresourceRange.baseMipLevel = 0;
-    image_view_info.subresourceRange.levelCount = 1;
+    image_view_info.subresourceRange.levelCount = texture_info.mip_level_count;
     image_view_info.image = vk_image;
 
     VkImageView vk_image_view;
@@ -889,21 +882,14 @@ Texture Context::create_texture(
     texture.image_view = vk_image_view;
     texture.allocation = allocation;
     texture.allocation_info = allocation_info;
-    texture.format = format;
+    texture.format = texture_info.format;
     texture.aspect = aspect;
     texture.owns_image = true;
     return texture;
 }
 
-Texture Context::create_temporary_texture(
-    VkExtent3D extent,
-    VkFormat format,
-    VkImageUsageFlags image_usage,
-    VmaMemoryUsage memory_usage,
-    uint32_t array_layers,
-    VkImageCreateFlags flags
-) {
-    auto texture = create_texture(extent, format, image_usage, memory_usage, array_layers, flags);
+Texture Context::create_temporary_texture(const TextureInfo& texture_info) {
+    auto texture = create_texture(texture_info);
     release_texture_on_frame_begin(texture);
     return texture;
 }
@@ -947,42 +933,29 @@ void Context::destroy_texture(Texture texture) {
     release_texture_on_frame_begin(texture);
 }
 
-Sampler Context::acquire_sampler(
-    VkSamplerAddressMode address_mode,
-    VkFilter filter,
-    VkBool32 compare_enable,
-    VkCompareOp compare_op
+Sampler Context::create_sampler(
+    const SamplerInfo& info
 ) {
-    return acquire_sampler(address_mode, address_mode, address_mode, filter, filter, compare_enable, compare_op);
-}
-
-Sampler Context::acquire_sampler(
-    VkSamplerAddressMode address_mode_u,
-    VkSamplerAddressMode address_mode_v,
-    VkSamplerAddressMode address_mode_w,
-    VkFilter min_filter,
-    VkFilter mag_filter,
-    VkBool32 compare_enable,
-    VkCompareOp compare_op
-) {
-    VkSamplerCreateInfo sampler_info{};
-    sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-    sampler_info.addressModeU = address_mode_u;
-    sampler_info.addressModeV = address_mode_v;
-    sampler_info.addressModeW = address_mode_w;
-    sampler_info.anisotropyEnable = VK_FALSE;
-    sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-    sampler_info.minFilter = min_filter;
-    sampler_info.magFilter = mag_filter;
-    sampler_info.compareEnable = compare_enable;
-    sampler_info.compareOp = compare_op;
-    sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-    sampler_info.maxLod = 1.0f;
-    sampler_info.minLod = 0.0f;
-    sampler_info.unnormalizedCoordinates = VK_FALSE;
+    bool use_all = info.address_mode_all != VK_SAMPLER_ADDRESS_MODE_MAX_ENUM;
+    VkSamplerCreateInfo vk_sampler_info{};
+    vk_sampler_info.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+    vk_sampler_info.addressModeU = use_all ? info.address_mode_all : info.address_mode_u;
+    vk_sampler_info.addressModeV = use_all ? info.address_mode_all : info.address_mode_u;
+    vk_sampler_info.addressModeW = use_all ? info.address_mode_all : info.address_mode_u;
+    vk_sampler_info.anisotropyEnable = info.max_anisotropy != 0.0f;
+    vk_sampler_info.maxAnisotropy = info.max_anisotropy;
+    vk_sampler_info.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
+    vk_sampler_info.minFilter = info.min_filter;
+    vk_sampler_info.magFilter = info.mag_filter;
+    vk_sampler_info.compareEnable = info.compare_enable;
+    vk_sampler_info.compareOp = info.compare_op;
+    vk_sampler_info.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    vk_sampler_info.maxLod = info.max_lod;
+    vk_sampler_info.minLod = info.min_lod;
+    vk_sampler_info.unnormalizedCoordinates = VK_FALSE;
 
     VkSampler vk_sampler;
-    vkCreateSampler(device, &sampler_info, nullptr, &vk_sampler);
+    vkCreateSampler(device, &vk_sampler_info, nullptr, &vk_sampler);
 
     Sampler sampler{};
     sampler.sampler = vk_sampler;

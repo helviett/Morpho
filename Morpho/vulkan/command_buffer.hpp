@@ -32,6 +32,22 @@ struct BufferBarrier {
     VkAccessFlags dst_access;
 };
 
+struct TextureBlit {
+    TextureSubresource src_subresource;
+    VkOffset3D src_offsets[2];
+    TextureSubresource dst_subresource;
+    VkOffset3D dst_offsets[2];
+};
+
+struct BlitInfo {
+    Texture src_texture;
+    VkImageLayout src_texture_layout;
+    Texture dst_texture;
+    VkImageLayout dst_texture_layout;
+    VkFilter filter = VK_FILTER_LINEAR;
+    Span<const TextureBlit> regions;
+};
+
 class CommandBuffer {
 public:
     CommandBuffer(VkCommandBuffer command_buffer, Context* context);
@@ -47,6 +63,7 @@ public:
         int32_t vertex_offset,
         uint32_t first_instance
     );
+    void blit(const BlitInfo& info);
     void copy_buffer(Buffer source, Buffer destination, VkDeviceSize size) const;
     void copy_buffer_to_image(Buffer source, Texture destination, VkExtent3D extent) const;
     void barrier(

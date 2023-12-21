@@ -27,6 +27,10 @@ public:
         return m_size;
     }
 
+    T* data() const {
+        return p_elems;
+    }
+
 private:
     T* p_elems;
     uint32_t m_size;

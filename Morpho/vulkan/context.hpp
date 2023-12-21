@@ -69,22 +69,8 @@ public:
     PipelineLayout create_pipeline_layout(const PipelineLayoutInfo& pipeline_layout_info);
     void destroy_pipline_layout(const PipelineLayout& pipeline_layout);
     DescriptorSet acquire_descriptor_set(VkDescriptorSetLayout descriptor_set_layout);
-    Texture create_texture(
-        VkExtent3D extent,
-        VkFormat format,
-        VkImageUsageFlags image_usage,
-        VmaMemoryUsage memory_usage,
-        uint32_t array_layers = 1,
-        VkImageCreateFlags flags = 0
-    );
-    Texture create_temporary_texture(
-        VkExtent3D extent,
-        VkFormat format,
-        VkImageUsageFlags image_usage,
-        VmaMemoryUsage memory_usage,
-        uint32_t array_layers = 1,
-        VkImageCreateFlags flags = 0
-    );
+    Texture create_texture(const TextureInfo& texture_info);
+    Texture create_temporary_texture(const TextureInfo& texture_info);
     Texture create_texture_view(
         const Texture& texture,
         uint32_t base_array_layer,
@@ -96,21 +82,7 @@ public:
         uint32_t layer_count
     );
     void destroy_texture(Texture texture);
-    Sampler acquire_sampler(
-        VkSamplerAddressMode address_mode,
-        VkFilter filter,
-        VkBool32 compare_enable = VK_FALSE,
-        VkCompareOp compare_op = VK_COMPARE_OP_NEVER
-    );
-    Sampler acquire_sampler(
-        VkSamplerAddressMode address_mode_u,
-        VkSamplerAddressMode address_mode_v,
-        VkSamplerAddressMode address_mode_w,
-        VkFilter min_filter,
-        VkFilter mag_filter,
-        VkBool32 compare_enable = VK_FALSE,
-        VkCompareOp compare_op = VK_COMPARE_OP_NEVER
-    );
+    Sampler create_sampler(const SamplerInfo& info);
     DescriptorSet create_descriptor_set(const PipelineLayout& pipeline_layout, uint32_t set_index);
     void update_descriptor_set(
         const DescriptorSet& descriptor_set,

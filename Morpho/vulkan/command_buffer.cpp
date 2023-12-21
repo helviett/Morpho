@@ -32,6 +32,40 @@ void CommandBuffer::draw_indexed(
     vkCmdDrawIndexed(command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
 }
 
+void CommandBuffer::blit(const BlitInfo& info) {
+    VkImageBlit regions[128]{};
+    for (uint32_t i = 0; i < info.regions.size(); i++) {
+        VkImageBlit& vk_region = regions[i];
+        const TextureBlit& region = info.regions[i];
+        vk_region.srcSubresource = {
+            .aspectMask = info.src_texture.aspect,
+            .mipLevel = region.src_subresource.mip_level,
+            .baseArrayLayer = region.src_subresource.base_array_layer,
+            .layerCount = region.src_subresource.layer_count,
+        };
+        vk_region.srcOffsets[0] = info.regions[i].src_offsets[0];
+        vk_region.srcOffsets[1] = info.regions[i].src_offsets[1];
+        vk_region.dstSubresource = {
+            .aspectMask = info.dst_texture.aspect,
+            .mipLevel = region.dst_subresource.mip_level,
+            .baseArrayLayer = region.dst_subresource.base_array_layer,
+            .layerCount = region.dst_subresource.layer_count,
+        };
+        vk_region.dstOffsets[0] = info.regions[i].dst_offsets[0];
+        vk_region.dstOffsets[1] = info.regions[i].dst_offsets[1];
+    }
+    vkCmdBlitImage(
+        command_buffer,
+        info.src_texture.image,
+        info.src_texture_layout,
+        info.dst_texture.image,
+        info.dst_texture_layout,
+        info.regions.size(),
+        regions,
+        info.filter
+    );
+}
+
 void CommandBuffer::bind_vertex_buffer(Buffer vertex_buffer, uint32_t binding, VkDeviceSize offset) {
     auto vk_buffer = vertex_buffer.buffer;
     vkCmdBindVertexBuffers(command_buffer, binding, 1, &vk_buffer, &offset);

@@ -39,6 +39,16 @@ struct Buffer {
     char* mapped;
 };
 
+struct TextureInfo {
+    VkExtent3D extent;
+    VkFormat format;
+    VkImageUsageFlags image_usage;
+    VmaMemoryUsage memory_usage = VMA_MEMORY_USAGE_AUTO;
+    uint32_t array_layer_count = 1;
+    uint32_t mip_level_count = 1;
+    VkImageCreateFlags flags = 0;
+};
+
 struct Texture {
     VkFormat format;
     VkImageAspectFlags aspect;
@@ -47,6 +57,28 @@ struct Texture {
     VkImageView image_view;
     VmaAllocation allocation;
     VmaAllocationInfo allocation_info;
+};
+
+struct TextureSubresource {
+    uint32_t              mip_level = 0;
+    uint32_t              base_array_layer = 0;
+    uint32_t              layer_count = VK_REMAINING_ARRAY_LAYERS;
+};
+
+struct SamplerInfo {
+    VkSamplerAddressMode address_mode_u = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    VkSamplerAddressMode address_mode_v = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    VkSamplerAddressMode address_mode_w = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+    VkSamplerAddressMode address_mode_all = VK_SAMPLER_ADDRESS_MODE_MAX_ENUM;
+    VkFilter min_filter = VK_FILTER_LINEAR;
+    VkFilter mag_filter = VK_FILTER_LINEAR;
+    VkSamplerMipmapMode mip_filter = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+    VkBool32 compare_enable = VK_FALSE;
+    VkCompareOp compare_op = VK_COMPARE_OP_NEVER;
+    float min_lod = 0.0f;
+    float max_lod = VK_LOD_CLAMP_NONE;
+    float load_bias = 0.0f;
+    float max_anisotropy = 0.0f;
 };
 
 struct Sampler {
