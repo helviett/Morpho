@@ -18,12 +18,15 @@ set(SOURCE_FILES
     src/main.cpp src/stb_image_impl.cpp
     src/tinygltf_impl.cpp src/stb_image_write_impl.cpp
     src/math.hpp src/math.cpp
+    ${CMAKE_BINARY_DIR}/imgui/bindings/imgui_impl_glfw.h ${CMAKE_BINARY_DIR}/imgui/bindings/imgui_impl_glfw.cpp
+    ${CMAKE_BINARY_DIR}/imgui/bindings/imgui_impl_vulkan.h ${CMAKE_BINARY_DIR}/imgui/bindings/imgui_impl_vulkan.cpp
 )
 
 find_package(stb CONFIG REQUIRED)
 find_package(glm CONFIG REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(tinygltf CONFIG REQUIRED)
+find_package(imgui CONFIG REQUIRED)
 
 foreach (_variableName ${_variableNames})
     message(STATUS "${_variableName}=${${_variableName}}")
@@ -32,10 +35,10 @@ endforeach()
 # Add source to this project's executable.
 add_executable (Sandbox ${SOURCE_FILES})
 
-target_link_libraries(Sandbox glfw TinyGLTF::TinyGLTF stb::stb glm::glm Morpho)
-set_property(TARGET Sandbox PROPERTY VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+target_include_directories(Sandbox PRIVATE ${CMAKE_BINARY_DIR}/imgui)
+target_link_libraries(Sandbox glfw TinyGLTF::TinyGLTF stb::stb glm::glm Morpho imgui::imgui)
 
 add_custom_target(
     CopyCompiledShaders ALL
-    COMMAND xcopy "/Y" "/S" "/D" "/E" ${SOURCE_DIR_WIN}\\assets\\ ${BIN_DIR_WIN}\\assets
+    COMMAND xcopy ${SOURCE_DIR_WIN}\\assets\\ ${BIN_DIR_WIN}\\assets\\ /Y /D /E /S
 )
