@@ -7,6 +7,9 @@ cmake_minimum_required (VERSION 3.15)
 set (CMAKE_CXX_STANDARD 20)
 add_compile_definitions(GLM_FORCE_DEPTH_ZERO_TO_ONE GLM_FORCE_XYZW_ONLY)
 
+file(TO_NATIVE_PATH ${CMAKE_CURRENT_BINARY_DIR} BIN_DIR_WIN)
+file(TO_NATIVE_PATH ${CMAKE_CURRENT_SOURCE_DIR} SOURCE_DIR_WIN)
+
 set(SOURCE_FILES
     src/application.cpp src/application.hpp
     src/input/input.cpp src/input/input.hpp
@@ -31,3 +34,8 @@ add_executable (Sandbox ${SOURCE_FILES})
 
 target_link_libraries(Sandbox glfw TinyGLTF::TinyGLTF stb::stb glm::glm Morpho)
 set_property(TARGET Sandbox PROPERTY VS_DEBUGGER_WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_custom_target(
+    CopyCompiledShaders ALL
+    COMMAND xcopy "/Y" "/S" "/D" "/E" ${SOURCE_DIR_WIN}\\assets\\ ${BIN_DIR_WIN}\\assets
+)
