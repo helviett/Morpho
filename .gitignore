@@ -84,3 +84,5 @@ build
 CMakeUserPresets.json
 .cache
 
+.nvim.lua
+

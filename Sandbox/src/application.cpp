@@ -332,13 +332,6 @@ void Application::init() {
     }
     for (uint32_t i = 0; i < model.buffers.size(); i++) {
         auto buffer_size = (VkDeviceSize)model.buffers[i].data.size();
-        auto staging_buffer = context->acquire_staging_buffer({
-            .size = buffer_size,
-            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            .map = BufferMap::CAN_BE_MAPPED,
-            .initial_data = model.buffers[i].data.data(),
-            .initial_data_size = buffer_size
-        });
         buffers[i] = context->acquire_buffer({
             .size = buffer_size,
             .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | buffer_usages[i]
@@ -389,13 +382,6 @@ void Application::init() {
         assert(gltf_image.component == 4);
         auto image_size = (VkDeviceSize)(gltf_image.width * gltf_image.height * gltf_image.component * (gltf_image.bits / 8));
         VkFormat format = texture_formats[i];
-        auto staging_image_buffer = context->acquire_staging_buffer({
-            .size = image_size,
-            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            .map = BufferMap::CAN_BE_MAPPED,
-            .initial_data = gltf_image.image.data(),
-            .initial_data_size = image_size
-        });
         uint32_t mip_level_count = std::bit_width((uint32_t)std::max(gltf_image.width, gltf_image.height));
         textures[i] = context->create_texture({
             .extent = { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 },

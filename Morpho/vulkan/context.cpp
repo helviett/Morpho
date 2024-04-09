@@ -1,7 +1,6 @@
 #include "context.hpp"
 #include <cassert>
 #include <optional>
-#include "../common/hash_utils.hpp"
 #include <cstddef>
 #include <vulkan/vulkan_core.h>
 
@@ -365,26 +364,12 @@ void Context::set_frame_context_count(uint32_t count) {
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    VkDescriptorPoolSize pool_sizes[2];
-    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_sizes[0].descriptorCount = 128;
-    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = 128;
-    VkDescriptorPoolCreateInfo pool_info{};
-    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.poolSizeCount = 1;
-    pool_info.pPoolSizes = pool_sizes;
-    pool_info.maxSets = 16;
-
     for (size_t i = 0; i < count; i++) {
         auto& frame_context = frame_contexts[i];
         vkCreateCommandPool(device, &command_pool_info, nullptr, &frame_context.command_pool);
         vkCreateFence(device, &fence_info, nullptr, &frame_context.render_fence);
         vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_context.present_semaphore);
         vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_context.render_semaphore);
-        VkDescriptorPool pool;
-        vkCreateDescriptorPool(device, &pool_info, nullptr, &pool);
-        frame_context.descriptor_pools.push_back(DescriptorPool(device, pool, 16));
     }
 }
 
@@ -394,10 +379,6 @@ void Context::begin_frame() {
     vkWaitForFences(device, 1, &frame_context.render_fence, true, 1000000000);
     vkResetFences(device, 1, &frame_context.render_fence);
     vkResetCommandPool(device, frame_context.command_pool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
-    for (auto& descriptor_pool : frame_context.descriptor_pools) {
-        descriptor_pool.reset();
-    }
-    frame_context.current_descriptor_pool_index = 0;
     for (auto it = frame_context.destructors.rbegin(); it != frame_context.destructors.rend(); it++) {
         (*it)();
     }
@@ -718,51 +699,6 @@ void Context::update_buffer(const Buffer buffer, uint64_t offset, const void* da
     unmap_memory(buffer.allocation);
 }
 
-void Context::flush(CommandBuffer command_buffer) {
-    auto handle = command_buffer.get_vulkan_handle();
-    vkEndCommandBuffer(handle);
-    VkSubmitInfo info{};
-    info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-    info.commandBufferCount = 1;
-    info.pCommandBuffers = &handle;
-
-    VkFence fence;
-    VkFenceCreateInfo fence_info{};
-    fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    vkCreateFence(device, &fence_info, nullptr, &fence);
-
-    vkQueueSubmit(graphics_queue, 1, &info, fence);
-    vkWaitForFences(device, 1, &fence, VK_TRUE, 1000000000);
-
-    vkDestroyFence(device, fence, nullptr);
-}
-
-DescriptorSet Context::acquire_descriptor_set(VkDescriptorSetLayout descriptor_set_layout) {
-    DescriptorSet set;
-    auto& frame_context = get_current_frame_context();
-    while (frame_context.current_descriptor_pool_index < frame_context.descriptor_pools.size()) {
-        auto& descriptor_pool = frame_context.descriptor_pools[frame_context.current_descriptor_pool_index];
-        if (descriptor_pool.try_allocate_set(descriptor_set_layout, set)) {
-            return set;
-        }
-        frame_context.current_descriptor_pool_index++;
-    }
-    VkDescriptorPoolSize pool_sizes[2];
-    pool_sizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    pool_sizes[0].descriptorCount = 128;
-    pool_sizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-    pool_sizes[1].descriptorCount = 128;
-    VkDescriptorPoolCreateInfo pool_info{};
-    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
-    pool_info.poolSizeCount = 2;
-    pool_info.pPoolSizes = pool_sizes;
-    pool_info.maxSets = 16;
-    VkDescriptorPool vulkan_descriptor_pool;
-    vkCreateDescriptorPool(device, &pool_info, nullptr, &vulkan_descriptor_pool);
-    frame_context.descriptor_pools.push_back(DescriptorPool(device, vulkan_descriptor_pool, 16));
-    return acquire_descriptor_set(descriptor_set_layout);
-}
-
 PipelineLayout Context::create_pipeline_layout(const PipelineLayoutInfo& pipeline_layout_info)
 {
     PipelineLayout pipeline_layout{};
@@ -885,12 +821,6 @@ Texture Context::create_texture(const TextureInfo& texture_info) {
     texture.format = texture_info.format;
     texture.aspect = aspect;
     texture.owns_image = true;
-    return texture;
-}
-
-Texture Context::create_temporary_texture(const TextureInfo& texture_info) {
-    auto texture = create_texture(texture_info);
-    release_texture_on_frame_begin(texture);
     return texture;
 }
 
@@ -1202,10 +1132,7 @@ RenderPassLayout Context::acquire_render_pass_layout(const RenderPassLayoutInfo&
     render_pass_info.layout.info = info;
     size_t hash = 0;
     VkRenderPass render_pass;
-    hash_combine(hash, info);
-    if (!render_pass_cache.try_get(hash, render_pass)) {
-        render_pass = create_render_pass(render_pass_info);
-    }
+    render_pass = create_render_pass(render_pass_info);
     RenderPassLayout render_pass_layout{};
     render_pass_layout.info = info;
     render_pass_layout.render_pass = render_pass;
@@ -1215,9 +1142,7 @@ RenderPassLayout Context::acquire_render_pass_layout(const RenderPassLayoutInfo&
 RenderPass Context::acquire_render_pass(const RenderPassInfo& info) {
     size_t hash = 0;
     VkRenderPass vk_render_pass;
-    if (!render_pass_cache.try_get(hash, vk_render_pass)) {
-        vk_render_pass = create_render_pass(info);
-    }
+    vk_render_pass = create_render_pass(info);
     RenderPass render_pass{};
     render_pass.layout = info.layout;
     render_pass.render_pass = vk_render_pass;

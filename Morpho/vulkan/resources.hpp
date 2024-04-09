@@ -3,7 +3,6 @@
 #include "vma.hpp"
 #include <optional>
 #include <string>
-#include "../common/hash_utils.hpp"
 #include "limits.hpp"
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
@@ -270,46 +269,3 @@ struct Pipeline {
 };
 
 }
-
-template<>
-struct std::hash<Morpho::Vulkan::RenderPassLayoutAttachmentInfo> {
-    std::size_t operator()(Morpho::Vulkan::RenderPassLayoutAttachmentInfo const& info) const noexcept {
-        std::size_t h = 0;
-        Morpho::hash_combine(h, info.format);
-        return h;
-    }
-};
-
-template<>
-struct std::hash<Morpho::Vulkan::RenderPassLayoutInfo> {
-    std::size_t operator()(Morpho::Vulkan::RenderPassLayoutInfo const& info) const noexcept {
-        std::size_t h = 0;
-        Morpho::hash_combine(h, info.max_attachment_count);
-        for (std::size_t i = 0; i < info.attachent_count; i++) {
-            Morpho::hash_combine(h, info.attachments[i]);
-        }
-        return h;
-    }
-};
-
-template<>
-struct std::hash<Morpho::Vulkan::RenderPassAttachmentInfo> {
-    std::size_t operator()(Morpho::Vulkan::RenderPassAttachmentInfo const& info) const noexcept {
-        std::size_t h = 0;
-        Morpho::hash_combine(h, info.load_op, info.store_op, info.final_layout);
-        return h;
-    }
-};
-
-template<>
-struct std::hash<Morpho::Vulkan::RenderPassInfo> {
-    std::size_t operator()(Morpho::Vulkan::RenderPassInfo const& info) const noexcept {
-        std::size_t h = 0;
-        Morpho::hash_combine(h, info.max_attachment_count);
-        for (std::size_t i = 0; i < info.attachent_count; i++) {
-            Morpho::hash_combine(h, info.attachments[i]);
-        }
-        Morpho::hash_combine(h, info.layout.info);
-        return h;
-    }
-};

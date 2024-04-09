@@ -10,7 +10,7 @@ class MorphoRecipe(ConanFile):
     def requirements(self):
         self.requires("glfw/3.3.8")
         self.requires("glm/0.9.9.8")
-        self.requires("stb/cci.20220909")
+        self.requires("stb/cci.20230920")
         self.requires("vulkan-memory-allocator/3.0.1")
         self.requires("tinygltf/2.8.13")
         self.requires("imgui/1.90")

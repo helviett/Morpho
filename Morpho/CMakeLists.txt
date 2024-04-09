@@ -17,9 +17,6 @@ set(SOURCE_FILES
     vulkan/context.hpp vulkan/context.cpp
     vulkan/vma.hpp vulkan/vma.cpp
     vulkan/limits.hpp vulkan/limits.cpp
-    common/resource_cache.hpp
-    common/hash_utils.hpp
-    vulkan/descriptor_pool.hpp vulkan/descriptor_pool.cpp
     vulkan/resources.hpp vulkan/resources.cpp 
     common/utils.hpp
 )

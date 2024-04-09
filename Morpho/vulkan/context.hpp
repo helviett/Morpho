@@ -12,8 +12,6 @@
 #include "command_buffer.hpp"
 #include "vma.hpp"
 #include "limits.hpp"
-#include "../common/resource_cache.hpp"
-#include "descriptor_pool.hpp"
 #include "common/span.hpp"
 
 namespace Morpho::Vulkan {
@@ -54,7 +52,6 @@ public:
     void end_frame();
     CommandBuffer acquire_command_buffer();
     void submit(CommandBuffer command_buffer);
-    void flush(CommandBuffer command_buffer);
     Shader acquire_shader(char* data, uint32_t size, Morpho::Vulkan::ShaderStage stage);
     RenderPassLayout acquire_render_pass_layout(const RenderPassLayoutInfo& info);
     RenderPass acquire_render_pass(const RenderPassInfo& info);
@@ -68,9 +65,7 @@ public:
     void unmap_memory(VmaAllocation allocation);
     PipelineLayout create_pipeline_layout(const PipelineLayoutInfo& pipeline_layout_info);
     void destroy_pipline_layout(const PipelineLayout& pipeline_layout);
-    DescriptorSet acquire_descriptor_set(VkDescriptorSetLayout descriptor_set_layout);
     Texture create_texture(const TextureInfo& texture_info);
-    Texture create_temporary_texture(const TextureInfo& texture_info);
     Texture create_texture_view(
         const Texture& texture,
         uint32_t base_array_layer,
@@ -120,15 +115,11 @@ private:
     VkQueue graphics_queue;
     uint32_t graphics_queue_family_index;
     VmaAllocator allocator;
-    // TODO: remove useless cache.
-    ResourceCache<VkRenderPass> render_pass_cache;
     uint64_t min_uniform_buffer_offset_alignment;
 
     struct FrameContext {
         // Stays here for a while for simplicity
         std::vector<std::function<void(void)>> destructors;
-        std::vector<DescriptorPool> descriptor_pools;
-        uint32_t current_descriptor_pool_index = 0;
         VkCommandPool command_pool;
         VkFence render_fence;
         VkSemaphore render_semaphore, present_semaphore;

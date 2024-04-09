@@ -1,4 +1,5 @@
 # Get all files in the directory
+Push-Location -LiteralPath $PSScriptRoot
 $files = Get-ChildItem
 
 # Compile each shader with the appropriate extensions
@@ -9,3 +10,4 @@ foreach ($file in $files) {
         & glslangValidator -gVS -V $file.Name -o $outputFile
     }
 }
+Pop-Location
