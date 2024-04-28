@@ -19,11 +19,13 @@ project "Morpho"
     targetdir "build/bin/%{cfg.buildcfg}"
     files { "Morpho/**.hpp", "Morpho/**.cpp" }
     location "build"
-    includedirs {
+    externalincludedirs {
         os.getenv("VULKAN_SDK") .. "/Include",
         "ThirdParty/glfw/include",
         "ThirdParty/VulkanMemoryAllocator/include",
         "ThirdParty/stb",
+    }
+    includedirs {
         "Morpho",
     }
 
@@ -52,9 +54,7 @@ project "Sandbox"
     files { "Sandbox/**.hpp", "Sandbox/**.cpp" }
     location "build"
     entrypoint "mainCRTStartup"
-    includedirs {
-        "Sandbox",
-        "Morpho",
+    externalincludedirs {
         os.getenv("VULKAN_SDK") .. "/Include",
         "ThirdParty/glfw/include",
         "ThirdParty/glm",
@@ -63,6 +63,10 @@ project "Sandbox"
         "ThirdParty/VulkanMemoryAllocator/include",
         "ThirdParty/tinygltf",
         "ThirdParty/stb",
+    }
+    includedirs {
+        "Sandbox",
+        "Morpho",
     }
     libdirs {
         os.getenv("VULKAN_SDK") .. "/Lib",
