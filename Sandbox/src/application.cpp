@@ -19,6 +19,7 @@
 #include "math.hpp"
 #include "vulkan/context.hpp"
 #include "vulkan/resources.hpp"
+#include "vulkan/resource_manager.hpp"
 
 void traverse_node(
     const tinygltf::Model& model,
@@ -84,6 +85,7 @@ void precalculate_transforms(
 }
 
 void Application::init() {
+    resource_manager = Morpho::Vulkan::ResourceManager::create(context);
     z_prepass_shader = load_shader("./assets/shaders/z_prepass.vert.spv");
     gltf_depth_pass_vertex_shader = load_shader("./assets/shaders/gltf_depth_pass.vert.spv");
     gltf_spot_light_vertex_shader = load_shader("./assets/shaders/gltf_spot_light.vert.spv");
@@ -332,15 +334,20 @@ void Application::init() {
     }
     for (uint32_t i = 0; i < model.buffers.size(); i++) {
         auto buffer_size = (VkDeviceSize)model.buffers[i].data.size();
-        buffers[i] = context->acquire_buffer({
+        buffers[i] = resource_manager->create_buffer({
             .size = buffer_size,
-            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | buffer_usages[i]
+            .usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | buffer_usages[i],
+            .initial_data = model.buffers[i].data.data(),
+            .initial_data_size = buffer_size
         });
     }
-    white_texture = context->create_texture({
+    uint32_t white_pixel = std::numeric_limits<uint32_t>::max();
+    white_texture = resource_manager->create_texture({
         .extent = { 1, 1, 1 },
         .format = VK_FORMAT_R8G8B8A8_UNORM,
         .image_usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+        .initial_data = &white_pixel,
+        .initial_data_size = sizeof(white_pixel)
     });
 
     std::vector<VkFormat> texture_formats(model.textures.size(), VK_FORMAT_UNDEFINED);
@@ -383,11 +390,14 @@ void Application::init() {
         auto image_size = (VkDeviceSize)(gltf_image.width * gltf_image.height * gltf_image.component * (gltf_image.bits / 8));
         VkFormat format = texture_formats[i];
         uint32_t mip_level_count = std::bit_width((uint32_t)std::max(gltf_image.width, gltf_image.height));
-        textures[i] = context->create_texture({
+        textures[i] = resource_manager->create_texture({
             .extent = { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 },
             .format = format,
             .image_usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
             .mip_level_count = mip_level_count,
+            .initial_data = gltf_image.image.data(),
+            .initial_data_size = image_size,
+            .initial_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         });
     }
     samplers.resize(model.samplers.size());
@@ -531,7 +541,7 @@ void Application::init() {
         .map = BufferMap::PERSISTENTLY_MAPPED,
     });
     auto extent = context->get_swapchain_extent();
-    depth_buffer = context->create_texture({
+    depth_buffer = resource_manager->create_texture({
         .extent = { extent.width, extent.height, 1 },
         .format = depth_format,
         .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
@@ -547,11 +557,12 @@ void Application::init() {
         .map = BufferMap::PERSISTENTLY_MAPPED
     });
     uint32_t max_side_length = std::max(extent.width, extent.height);
-    cascaded_shadow_maps = context->create_texture({
+    cascaded_shadow_maps = resource_manager->create_texture({
         .extent = { max_side_length, max_side_length, 1 },
         .format = depth_format,
         .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
         .array_layer_count = cascade_count,
+        .initial_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
     });
     for (uint32_t frame_index = 0; frame_index < frame_in_flight_count; frame_index++) {
         csm_descriptor_sets[frame_index] = context->create_descriptor_set(light_pipeline_layout, 1);
@@ -693,10 +704,7 @@ void Application::begin_frame(Morpho::Vulkan::CommandBuffer& cmd) {
         const Light& light = lights[i];
         texture_barriers.push_back({
             .texture = light.shadow_map,
-            // Need some sort of ResourceManager that can transition image to initial state
-            // in order to not track if it's the first usage of the RT.
-            .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-            //.old_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+            .old_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
             .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
             .src_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
             .src_access = VK_ACCESS_SHADER_READ_BIT,
@@ -746,6 +754,7 @@ void Application::set_graphics_context(Morpho::Vulkan::Context* context) {
 
 void Application::render_frame() {
     context->begin_frame();
+    resource_manager->next_frame();
     bool use_debug_pipeline = debug_mode;
     if (use_debug_pipeline) {
         uint64_t alignment = context->get_uniform_buffer_alignment();
@@ -816,6 +825,7 @@ void Application::render_frame() {
         }},
         {}
     );
+    resource_manager->commit();
     context->submit(cmd);
     context->end_frame();
     frames_total++;
@@ -998,59 +1008,7 @@ std::vector<char> Application::read_file(const std::string& filename) {
 }
 
 void Application::initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd) {
-    uint32_t white_pixel = std::numeric_limits<uint32_t>::max();
-    auto white_staging_buffer = context->acquire_staging_buffer({
-        .size = 1 * 1 * 4,
-        .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-        .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
-        .initial_data = &white_pixel,
-        .initial_data_size = sizeof(white_pixel)
-    });
-    cmd.barrier(
-        {{
-            .texture = white_texture,
-            .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            .src_access = 0,
-            .dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
-            .dst_access = VK_ACCESS_TRANSFER_WRITE_BIT
-        }},
-        {}
-    );
-    cmd.copy_buffer_to_image(white_staging_buffer, white_texture, { (uint32_t)1, (uint32_t)1, (uint32_t)1 });
-    create_scene_resources(cmd);
-    cmd.barrier(
-        {
-            {
-                .texture = white_texture,
-                .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-                .new_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-                .src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
-                .src_access = VK_ACCESS_TRANSFER_WRITE_BIT,
-                .dst_stages = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-                .dst_access = VK_ACCESS_SHADER_READ_BIT
-            },
-            {
-                .texture = depth_buffer,
-                .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-                .src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                .src_access = 0,
-                .dst_stages = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                .dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
-            },
-            {
-                .texture = cascaded_shadow_maps,
-                .old_layout = VK_IMAGE_LAYOUT_UNDEFINED,
-                .new_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-                .src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-                .src_access = 0,
-                .dst_stages = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT,
-                .dst_access = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-            },
-        },
-        {}
-    );
+    generate_mipmaps(cmd);
 }
 
 void Application::process_keyboard_input(GLFWwindow* window, int key_code, int scancode, int action, int mods) {
@@ -1359,10 +1317,11 @@ void Application::update(float delta) {
             cos(glm::radians(17.5f)),
             cos(glm::radians(12.5f))
         );
-        auto shadow_map = context->create_texture({
+        auto shadow_map = resource_manager->create_texture({
             .extent = { extent.width, extent.height, 1 },
             .format = depth_format,
             .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+            .initial_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
         });
         Light light{};
         light.light_type = LightType::SpotLight;
@@ -1379,12 +1338,13 @@ void Application::update(float delta) {
         );
         auto face_extent = extent;
         face_extent.width = face_extent.height = std::max(face_extent.width, face_extent.height);
-        auto shadow_map = context->create_texture({
+        auto shadow_map = resource_manager->create_texture({
            .extent = { face_extent.width, face_extent.height, 1 },
            .format = depth_format,
            .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
            .array_layer_count = 6,
-           .flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT
+           .flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
+           .initial_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
         });
         Light light{};
         light.light_type = LightType::PointLight;
@@ -1554,77 +1514,13 @@ bool Application::load_scene(std::filesystem::path file_path) {
     return true;
 }
 
-void Application::create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd) {
-    std::vector<VkBufferUsageFlags> buffer_usages(model.buffers.size(), 0);
-    std::vector<Morpho::Vulkan::BufferBarrier> buffer_barriers(model.buffers.size());
-    buffers.resize(model.buffers.size());
-    for (auto& mesh : model.meshes) {
-        for (auto& primitive : mesh.primitives) {
-            if (primitive.indices >= 0) {
-                auto buffer_view_index = model.accessors[primitive.indices].bufferView;
-                auto buffer_index = model.bufferViews[buffer_view_index].buffer;
-                buffer_usages[buffer_index] |= VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
-            }
-            for (auto& key_value : primitive.attributes) {
-                auto buffer_view_index = model.accessors[key_value.second].bufferView;
-                auto buffer_index = model.bufferViews[buffer_view_index].buffer;
-                buffer_usages[buffer_index] |= VK_BUFFER_USAGE_VERTEX_BUFFER_BIT;
-            }
-        }
-    }
-    for (uint32_t i = 0; i < model.buffers.size(); i++) {
-        auto buffer_size = (VkDeviceSize)model.buffers[i].data.size();
-        auto staging_buffer = context->acquire_staging_buffer({
-            .size = buffer_size,
-            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
-            .initial_data = model.buffers[i].data.data(),
-            .initial_data_size = buffer_size
-        });
-        cmd.copy_buffer(staging_buffer, buffers[i], buffer_size);
-        buffer_barriers[i] = {
-            .buffer = buffers[i],
-            .src_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
-            .src_access = VK_ACCESS_TRANSFER_WRITE_BIT,
-            .dst_stages = VK_PIPELINE_STAGE_ALL_GRAPHICS_BIT,
-            .dst_access = VK_ACCESS_INDEX_READ_BIT | VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT,
-        };
-    }
-    textures.resize(model.textures.size());
+void Application::generate_mipmaps(Morpho::Vulkan::CommandBuffer& cmd) {
     texture_barriers.resize(model.textures.size());
-    for (uint32_t i = 0; i < model.textures.size(); i++) {
-        texture_barriers[i] = {
-            .texture = textures[i],
-            .new_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-            .src_stages = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            .src_access = 0,
-            .dst_stages = VK_PIPELINE_STAGE_TRANSFER_BIT,
-            .dst_access = VK_ACCESS_TRANSFER_WRITE_BIT,
-        };
-    }
-    cmd.barrier(
-        Morpho::make_const_span(texture_barriers.data(), texture_barriers.size()),
-        Morpho::make_const_span(buffer_barriers.data(), buffer_barriers.size())
-    );
     uint32_t max_mip_level = 0;
     for (uint32_t i = 0; i < model.textures.size(); i++) {
         auto& texture = model.textures[i];
         auto gltf_image = model.images[texture.source];
-        // TODO: get format from bits + component + pixel_type
         assert(gltf_image.component == 4);
-        auto image_size = (VkDeviceSize)(gltf_image.width * gltf_image.height * gltf_image.component * (gltf_image.bits / 8));
-        VkFormat format = VK_FORMAT_R8G8B8A8_SRGB;
-        Morpho::Vulkan::BufferInfo buffer_info;
-        auto staging_image_buffer  = context->acquire_staging_buffer({
-            .size = image_size,
-            .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-            .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
-            .initial_data = gltf_image.image.data(),
-            .initial_data_size = image_size
-        });
-        cmd.copy_buffer_to_image(
-            staging_image_buffer, textures[i], { (uint32_t)gltf_image.width, (uint32_t)gltf_image.height, (uint32_t)1 }
-        );
         texture_barriers[i] = {
             .texture = textures[i],
             .old_layout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,

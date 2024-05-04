@@ -103,8 +103,6 @@ void Camera::calculate_view_if_needed() {
         right.z, -up.z, -forward.z, 0.0f,
         -dot(right, position), -dot(-up, position), -dot(-forward, position), 1.0f
     );
-    auto test = transform * view;
-    bool is_I = test == glm::mat4(1.0f);
 }
 
 glm::vec3 Camera::get_right() {

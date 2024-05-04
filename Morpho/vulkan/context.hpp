@@ -36,6 +36,32 @@ void DestroyDebugUtilsMessengerEXT(
     const VkAllocationCallbacks* pAllocator
 );
 
+inline VkImageAspectFlags derive_aspect(VkFormat format) {
+    switch (format) {
+        case VK_FORMAT_D16_UNORM:
+        case VK_FORMAT_D32_SFLOAT:
+            return VK_IMAGE_ASPECT_DEPTH_BIT;
+        case VK_FORMAT_S8_UINT:
+            return VK_IMAGE_ASPECT_STENCIL_BIT;
+        case VK_FORMAT_D16_UNORM_S8_UINT:
+        case VK_FORMAT_D24_UNORM_S8_UINT:
+        case VK_FORMAT_D32_SFLOAT_S8_UINT:
+            return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+        default:
+            return VK_IMAGE_ASPECT_COLOR_BIT;
+    }
+}
+
+struct CmdPool {
+public:
+    friend class Context;
+    CommandBuffer allocate();
+    void next_frame();
+private:
+    uint32_t current_frame;
+    VkDevice device;
+    VkCommandPool cmd_pools[MAX_FRAME_CONTEXTS];
+};
 
 class Context {
 public:
@@ -45,6 +71,9 @@ public:
     Context &operator=(const Context &) = delete;
     Context(Context &&) = delete;
     Context &operator=(Context &&) = delete;
+
+    friend class ResourceManager;
+    friend struct CmdPool;
 
     void init(GLFWwindow *window);
     void set_frame_context_count(uint32_t count);
@@ -84,6 +113,9 @@ public:
         Span<const DescriptorSetUpdateRequest> update_requests
     );
 
+    void create_cmd_pool(CmdPool** pool);
+    void destroy_cmd_pool(CmdPool* pool);
+
     uint64_t get_uniform_buffer_alignment() const;
 
     // public WSI stuff
@@ -121,8 +153,8 @@ private:
         // Stays here for a while for simplicity
         std::vector<std::function<void(void)>> destructors;
         VkCommandPool command_pool;
-        VkFence render_fence;
-        VkSemaphore render_semaphore, present_semaphore;
+        VkFence render_finished_fence;
+        VkSemaphore render_semaphore, image_ready_semaphore;
 
         FrameContext() = default;
         FrameContext(const FrameContext &) = delete;

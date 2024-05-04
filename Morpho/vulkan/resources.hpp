@@ -2,7 +2,6 @@
 #include <vulkan/vulkan.h>
 #include "vma.hpp"
 #include <optional>
-#include <string>
 #include "limits.hpp"
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
@@ -35,7 +34,7 @@ private:
 struct Buffer {
     VkBuffer buffer;
     VmaAllocation allocation;
-    char* mapped;
+    uint8_t* mapped;
 };
 
 struct TextureInfo {
@@ -46,6 +45,9 @@ struct TextureInfo {
     uint32_t array_layer_count = 1;
     uint32_t mip_level_count = 1;
     VkImageCreateFlags flags = 0;
+    void* initial_data = nullptr;
+    VkDeviceSize initial_data_size = 0;
+    VkImageLayout initial_layout = VK_IMAGE_LAYOUT_UNDEFINED;
 };
 
 struct Texture {
@@ -62,6 +64,13 @@ struct TextureSubresource {
     uint32_t              mip_level = 0;
     uint32_t              base_array_layer = 0;
     uint32_t              layer_count = VK_REMAINING_ARRAY_LAYERS;
+};
+
+struct BufferTextureCopyRegion {
+    VkDeviceSize buffer_offset;
+    VkOffset3D texture_offset;
+    VkExtent3D texture_extent;
+    TextureSubresource texture_subresource;
 };
 
 struct SamplerInfo {

@@ -3,6 +3,7 @@
 #include <optional>
 #include <cstddef>
 #include <vulkan/vulkan_core.h>
+#include "resource_manager.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -12,22 +13,6 @@ static inline bool is_depth_format(VkFormat format) {
         || format == VK_FORMAT_D24_UNORM_S8_UINT
         || format == VK_FORMAT_D32_SFLOAT
         || format == VK_FORMAT_D32_SFLOAT_S8_UINT;
-}
-
-static inline VkImageAspectFlags derive_aspect(VkFormat format) {
-    switch (format) {
-        case VK_FORMAT_D16_UNORM:
-        case VK_FORMAT_D32_SFLOAT:
-            return VK_IMAGE_ASPECT_DEPTH_BIT;
-        case VK_FORMAT_S8_UINT:
-            return VK_IMAGE_ASPECT_STENCIL_BIT;
-        case VK_FORMAT_D16_UNORM_S8_UINT:
-        case VK_FORMAT_D24_UNORM_S8_UINT:
-        case VK_FORMAT_D32_SFLOAT_S8_UINT:
-            return VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-        default:
-            return VK_IMAGE_ASPECT_COLOR_BIT;
-    }
 }
 
 void DestroyDebugUtilsMessengerEXT(
@@ -124,7 +109,11 @@ VKAPI_ATTR VkBool32 VKAPI_CALL Context::debug_callback(
     const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
     void* pUserData
 ) {
-    std::cout << "validation layer: " << pCallbackData->pMessage << std::endl;
+    if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+        std::cerr << "validation layer: " << pCallbackData->pMessage << std::endl;
+    } else {
+        std::cout << "validation layer: " << pCallbackData->pMessage << std::endl;
+    }
     return VK_FALSE;
 }
 
@@ -359,6 +348,7 @@ void Context::set_frame_context_count(uint32_t count) {
 
     VkSemaphoreCreateInfo semaphore_info{};
     semaphore_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    semaphore_info.flags = 0;
 
     VkFenceCreateInfo fence_info{};
     fence_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
@@ -367,17 +357,17 @@ void Context::set_frame_context_count(uint32_t count) {
     for (size_t i = 0; i < count; i++) {
         auto& frame_context = frame_contexts[i];
         vkCreateCommandPool(device, &command_pool_info, nullptr, &frame_context.command_pool);
-        vkCreateFence(device, &fence_info, nullptr, &frame_context.render_fence);
-        vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_context.present_semaphore);
+        vkCreateFence(device, &fence_info, nullptr, &frame_context.render_finished_fence);
+        vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_context.image_ready_semaphore);
         vkCreateSemaphore(device, &semaphore_info, nullptr, &frame_context.render_semaphore);
     }
 }
 
 void Context::begin_frame() {
     auto& frame_context = get_current_frame_context();
-    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, frame_context.present_semaphore, nullptr, &swapchain_image_index);
-    vkWaitForFences(device, 1, &frame_context.render_fence, true, 1000000000);
-    vkResetFences(device, 1, &frame_context.render_fence);
+    VK_CHECK(vkWaitForFences(device, 1, &frame_context.render_finished_fence, VK_TRUE, 10000000000), __FUNCTION__);
+    vkResetFences(device, 1, &frame_context.render_finished_fence);
+    vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, frame_context.image_ready_semaphore, VK_NULL_HANDLE, &swapchain_image_index);
     vkResetCommandPool(device, frame_context.command_pool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
     for (auto it = frame_context.destructors.rbegin(); it != frame_context.destructors.rend(); it++) {
         (*it)();
@@ -415,7 +405,7 @@ CommandBuffer Context::acquire_command_buffer() {
 
     vkBeginCommandBuffer(command_buffer, &begin_info);
 
-    CommandBuffer cmd(command_buffer, this);
+    CommandBuffer cmd(command_buffer);
 
     return cmd;
 }
@@ -450,13 +440,13 @@ void Context::submit(CommandBuffer command_buffer) {
     info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
     info.commandBufferCount = 1;
     info.pCommandBuffers = &handle;
-    info.pWaitSemaphores = &frame_context.present_semaphore;
+    info.pWaitSemaphores = &frame_context.image_ready_semaphore;
     info.waitSemaphoreCount = 1;
     info.pWaitDstStageMask = wait_stages;
     info.pSignalSemaphores = &frame_context.render_semaphore;
     info.signalSemaphoreCount = 1;
 
-    vkQueueSubmit(graphics_queue, 1, &info, frame_context.render_fence);
+    vkQueueSubmit(graphics_queue, 1, &info, frame_context.render_finished_fence);
 }
 
 Framebuffer Context::acquire_framebuffer(const FramebufferInfo& info) {
@@ -660,7 +650,7 @@ Buffer Context::acquire_buffer(const BufferInfo& info) {
     Buffer buffer{};
     buffer.buffer = vk_buffer;
     buffer.allocation = allocation;
-    buffer.mapped = (char*)allocation_info.pMappedData;
+    buffer.mapped = (uint8_t*)allocation_info.pMappedData;
 
     if (info.initial_data != nullptr) {
         assert(info.initial_data_size <= info.size && info.map != BufferMap::NONE);
@@ -669,6 +659,7 @@ Buffer Context::acquire_buffer(const BufferInfo& info) {
         memcpy(mapped, info.initial_data, info.initial_data_size);
         vmaUnmapMemory(allocator, allocation);
     }
+
     return buffer;
 }
 
@@ -1151,6 +1142,49 @@ RenderPass Context::acquire_render_pass(const RenderPassInfo& info) {
 
 void Context::wait_queue_idle() {
     vkQueueWaitIdle(graphics_queue);
+}
+
+void Context::create_cmd_pool(CmdPool** out_pool) {
+    CmdPool* pool = (CmdPool*)malloc(sizeof(CmdPool));
+    pool->current_frame = 0;
+    pool->device = device;
+    VkCommandPoolCreateInfo command_pool_info{};
+    command_pool_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_info.queueFamilyIndex = graphics_queue_family_index;
+    command_pool_info.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+
+    for (uint32_t i = 0; i < MAX_FRAME_CONTEXTS; i++) {
+        VkResult result = vkCreateCommandPool(device, &command_pool_info, nullptr, &pool->cmd_pools[i]);
+        VK_CHECK(result, "Unable to create VkCommandPool.");
+    }
+    *out_pool = pool;
+}
+
+void Context::destroy_cmd_pool(CmdPool* pool) {
+    for (uint32_t i = 0; i < MAX_FRAME_CONTEXTS; i++) {
+        vkDestroyCommandPool(device, pool->cmd_pools[i], nullptr);
+    }
+    free(pool);
+}
+
+
+CommandBuffer CmdPool::allocate() {
+    VkCommandBufferAllocateInfo info{};
+    info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    info.commandPool = cmd_pools[current_frame];
+    info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    info.commandBufferCount = 1;
+    VkCommandBuffer vk_cmd;
+    vkAllocateCommandBuffers(device, &info, &vk_cmd);
+    VkCommandBufferBeginInfo begin_info{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(vk_cmd, &begin_info);
+    return CommandBuffer(vk_cmd);
+}
+
+void CmdPool::next_frame() {
+    current_frame = (current_frame + 1) % MAX_FRAME_CONTEXTS;
+    vkResetCommandPool(device, cmd_pools[current_frame], VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
 }
 
 }

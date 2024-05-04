@@ -1,5 +1,5 @@
 #include "command_buffer.hpp"
-#include "context.hpp"
+#include "vulkan/context.hpp"
 #include <vulkan/vulkan_core.h>
 
 namespace Morpho::Vulkan {
@@ -8,9 +8,8 @@ VkCommandBuffer CommandBuffer::get_vulkan_handle() const {
     return command_buffer;
 }
 
-CommandBuffer::CommandBuffer(VkCommandBuffer command_buffer, Context* context) {
+CommandBuffer::CommandBuffer(VkCommandBuffer command_buffer) {
     this->command_buffer = command_buffer;
-    this->context = context;
 }
 
 void CommandBuffer::end_render_pass() {
@@ -85,6 +84,12 @@ void CommandBuffer::copy_buffer(Buffer source, Buffer destination, VkDeviceSize 
     vkCmdCopyBuffer(command_buffer, src, dst, 1, &region);
 }
 
+void CommandBuffer::copy_buffer(Buffer source, Buffer destination, VkBufferCopy copy) const {
+    auto dst = destination.buffer;
+    auto src = source.buffer;
+    vkCmdCopyBuffer(command_buffer, src, dst, 1, &copy);
+}
+
 void CommandBuffer::copy_buffer_to_image(Buffer source, Texture destination, VkExtent3D extent) const {
     VkBufferImageCopy region{};
     region.bufferOffset = 0;
@@ -104,6 +109,28 @@ void CommandBuffer::copy_buffer_to_image(Buffer source, Texture destination, VkE
         VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
         1,
         &region
+    );
+}
+
+void CommandBuffer::copy_buffer_to_image(Buffer source, Texture destination, BufferTextureCopyRegion region) const {
+    VkBufferImageCopy vk_region{};
+    vk_region.bufferOffset = region.buffer_offset;
+    vk_region.bufferRowLength = 0;
+    vk_region.bufferImageHeight = 0;
+    vk_region.imageSubresource.aspectMask = derive_aspect(destination.format);
+    vk_region.imageSubresource.mipLevel = region.texture_subresource.mip_level;
+    vk_region.imageSubresource.baseArrayLayer = region.texture_subresource.base_array_layer;
+    vk_region.imageSubresource.layerCount = region.texture_subresource.layer_count;
+    vk_region.imageOffset = region.texture_offset;
+    vk_region.imageExtent = region.texture_extent;
+
+    vkCmdCopyBufferToImage(
+        command_buffer,
+        source.buffer,
+        destination.image,
+        VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        1,
+        &vk_region
     );
 }
 

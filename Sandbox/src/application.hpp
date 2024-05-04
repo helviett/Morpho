@@ -148,6 +148,7 @@ private:
     GLFWwindow* window;
     Key key_map[Input::MAX_KEY_COUNT];
     Morpho::Vulkan::Context* context;
+    Morpho::Vulkan::ResourceManager* resource_manager;
 
     Morpho::Vulkan::RenderPassLayout color_pass_layout;
     Morpho::Vulkan::RenderPassLayout depth_pass_layout;
@@ -260,7 +261,7 @@ private:
     void update(float delta);
     void calculate_cascades();
     Key glfw_key_code_to_key(int code);
-    void create_scene_resources(Morpho::Vulkan::CommandBuffer& cmd);
+    void generate_mipmaps(Morpho::Vulkan::CommandBuffer& cmd);
     void draw_model(
         const tinygltf::Model& model,
         Morpho::Vulkan::CommandBuffer& cmd,
