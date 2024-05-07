@@ -414,10 +414,10 @@ void Application::init() {
     }
     material_descriptor_sets.resize(model.materials.size());
     std::vector<MaterialParameters> material_parameters(model.materials.size());
-    material_buffer = context->acquire_buffer({
+    material_buffer = resource_manager->create_buffer({
         .size = model.materials.size() * sizeof(MaterialParameters),
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .map = Morpho::Vulkan::BufferMap::CAN_BE_MAPPED,
+        .map = Morpho::Vulkan::BufferMap::PERSISTENTLY_MAPPED,
     });
     for (uint32_t material_index = 0; material_index < model.materials.size(); material_index++) {
         auto& material = model.materials[material_index];
@@ -473,16 +473,11 @@ void Application::init() {
         material_parameters[material_index].metalness_factor = material.pbrMetallicRoughness.metallicFactor;
         material_parameters[material_index].roughness_factor = material.pbrMetallicRoughness.roughnessFactor;
     }
-    context->update_buffer(
-        material_buffer,
-        0,
-        material_parameters.data(),
-        material_parameters.size() * sizeof(MaterialParameters)
-    );
+    memcpy(material_buffer.mapped, material_parameters.data(), material_parameters.size() * sizeof(MaterialParameters));
 
     const uint64_t alignment = context->get_uniform_buffer_alignment();
     const uint64_t globals_size = Morpho::round_up(sizeof(Globals), alignment);
-    globals_buffer = context->acquire_buffer({
+    globals_buffer = resource_manager->create_buffer({
         .size = frame_in_flight_count * globals_size,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = Morpho::Vulkan::BufferMap::PERSISTENTLY_MAPPED,
@@ -507,7 +502,7 @@ void Application::init() {
     uint64_t model_uniform_data_size = model.meshes.size() * Morpho::round_up(sizeof(ModelUniform), alignment);
     uint8_t* model_uniform_data = new uint8_t[model_uniform_data_size];
     precalculate_transforms(model, model_uniform_data, alignment);
-    mesh_uniforms = context->acquire_buffer({
+    mesh_uniforms = resource_manager->create_buffer({
         .size = model.meshes.size() * Morpho::round_up(sizeof(ModelUniform), alignment),
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::CAN_BE_MAPPED,
@@ -530,12 +525,12 @@ void Application::init() {
     }
     auto light_uniforms_max_size = Morpho::round_up(sizeof(Light::LightData), alignment)
         + Morpho::round_up(sizeof(ViewProjection), alignment);
-    light_buffer = context->acquire_buffer({
+    light_buffer = resource_manager->create_buffer({
         .size = max_light_count * frame_in_flight_count * light_uniforms_max_size,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED,
     });
-    cube_map_face_buffer = context->acquire_buffer({
+    cube_map_face_buffer = resource_manager->create_buffer({
         .size = max_light_count * frame_in_flight_count * light_uniforms_max_size * 6,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED,
@@ -546,12 +541,12 @@ void Application::init() {
         .format = depth_format,
         .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
     });
-    directional_light_uniform_buffer = context->acquire_buffer({
+    directional_light_uniform_buffer = resource_manager->create_buffer({
         .size = Morpho::round_up(sizeof(DirectionalLight), alignment) * frame_in_flight_count,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED
     });
-    csm_uniform_buffer = context->acquire_buffer({
+    csm_uniform_buffer = resource_manager->create_buffer({
         .size = Morpho::round_up(sizeof(CsmUniform), alignment) * frame_in_flight_count,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED
@@ -588,13 +583,13 @@ void Application::init() {
         memcpy(directional_light_uniform_buffer.mapped + light_uniform_offset, &sun, sizeof(sun));
     }
     uint64_t directional_shadow_map_uniform_size = Morpho::round_up(sizeof(ViewProjection), alignment);
-    directional_shadow_map_uniform_buffer = context->acquire_buffer({
+    directional_shadow_map_uniform_buffer = resource_manager->create_buffer({
         .size = directional_shadow_map_uniform_size * frame_in_flight_count * cascade_count,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED,
     });
     for (uint32_t i = 0; i < cascade_count; i++) {
-        directional_shadow_maps[i] = context->create_texture_view(cascaded_shadow_maps, i, 1);
+        directional_shadow_maps[i] = resource_manager->create_texture_view(cascaded_shadow_maps, i, 1);
     }
     for (uint32_t cascade_index = 0; cascade_index < cascade_count; cascade_index++) {
         for (uint32_t frame_index = 0; frame_index < frame_in_flight_count; frame_index++) {
@@ -1207,7 +1202,7 @@ void Application::add_light(Light light) {
     }
     if (light.light_type == LightType::PointLight) {
         for (uint32_t face_index = 0; face_index < 6; face_index++) {
-            light.views[face_index] = context->create_texture_view(
+            light.views[face_index] = resource_manager->create_texture_view(
                 light.shadow_map,
                 face_index,
                 1

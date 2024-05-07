@@ -103,11 +103,8 @@ Buffer ResourceManager::create_buffer(const BufferInfo& info) {
     }
     assert(info.initial_data_size <= info.size);
     if (info.map == BufferMap::NONE) {
-        // Get staging buffer large enough to fit initial_data_size
         StagingBuffer* sb = acquire_staging_buffer(info.initial_data_size);
-        // fill it via memcpy
         memcpy(sb->write_ptr, info.initial_data, info.initial_data_size);
-        // record buffer copy into cmd
         post_cmd->copy_buffer(
             sb->buffer,
             buffer,
@@ -117,18 +114,9 @@ Buffer ResourceManager::create_buffer(const BufferInfo& info) {
                 .size = info.initial_data_size,
             }
         );
-        // |= flags memory_barrier
-        // TODO: It should ALWAYS be the same
         memory_barrier.srcAccessMask |= VK_ACCESS_TRANSFER_WRITE_BIT;
         src_stages |= VK_PIPELINE_STAGE_TRANSFER_BIT;
         derive_stages_and_access_from_buffer_usage(info.usage, &dst_stages, &memory_barrier.dstAccessMask);
-        // It would probably require some additional information in order to create
-        // perfect barrier. It's easy to derive required flags for memory_barrier depending on usage
-        // but the barrier may become too wide. Though I think implicit transition is okay in 99% cases for barriers.
-        // One of the problems I may encounter is that I CANT CREATE STAGING BUFFER IN TRANSFER SRC STATE BLYAT.
-        // Possible Solutions: (not a problem for buffers)
-        // - Delay record of buffer copies. Need 1 additional memory_barrier and array of buffer copies
-        // - Use one more CMD for initial barriers (probably need for texture, or, again, have to delay record of copies)
         need_submit = 1;
     } else {
         void* mapped;
@@ -277,6 +265,37 @@ Texture ResourceManager::create_texture(const TextureInfo& texture_info) {
     arrput(post_barriers, post_barrier);
 
     return texture;
+}
+
+Texture ResourceManager::create_texture_view(
+    const Texture& texture,
+    uint32_t base_array_layer,
+    uint32_t layer_count
+) {
+    VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
+
+    VkImageAspectFlags aspect = texture.aspect;
+
+    VkImageViewCreateInfo image_view_info{};
+    image_view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+    image_view_info.format = texture.format;
+    image_view_info.viewType = view_type;
+    image_view_info.subresourceRange.aspectMask = aspect;
+    image_view_info.subresourceRange.baseArrayLayer = base_array_layer;
+    image_view_info.subresourceRange.layerCount = layer_count;
+    image_view_info.subresourceRange.baseMipLevel = 0;
+    image_view_info.subresourceRange.levelCount = 1;
+    image_view_info.image = texture.image;
+
+    VkImageView vk_image_view{};
+    vkCreateImageView(device, &image_view_info, nullptr, &vk_image_view);
+
+    Texture view{};
+    view.format = texture.format;
+    view.aspect = texture.aspect;
+    view.image = texture.image;
+    view.image_view = vk_image_view;
+    return view;
 }
 
 void ResourceManager::commit() {

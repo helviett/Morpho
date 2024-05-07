@@ -22,6 +22,11 @@ public:
 
     Buffer create_buffer(const BufferInfo& info);
     Texture create_texture(const TextureInfo& info);
+    Texture create_texture_view(
+        const Texture& texture,
+        uint32_t base_array_layer,
+        uint32_t layer_count
+    );
 
     void commit();
     void next_frame();

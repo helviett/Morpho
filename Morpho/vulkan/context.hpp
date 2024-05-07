@@ -86,26 +86,10 @@ public:
     RenderPass acquire_render_pass(const RenderPassInfo& info);
     Framebuffer acquire_framebuffer(const FramebufferInfo& info);
     Pipeline create_pipeline(PipelineInfo &pipeline_info);
-    Buffer acquire_buffer(const BufferInfo& info);
-    Buffer acquire_staging_buffer(const BufferInfo& info);
-    void release_buffer(Buffer buffer);
-    void update_buffer(const Buffer buffer, uint64_t offset, const void* data, uint64_t size);
     void map_memory(VmaAllocation allocation, void **map);
     void unmap_memory(VmaAllocation allocation);
     PipelineLayout create_pipeline_layout(const PipelineLayoutInfo& pipeline_layout_info);
     void destroy_pipline_layout(const PipelineLayout& pipeline_layout);
-    Texture create_texture(const TextureInfo& texture_info);
-    Texture create_texture_view(
-        const Texture& texture,
-        uint32_t base_array_layer,
-        uint32_t layer_count
-    );
-    Texture create_temporary_texture_view(
-        const Texture& texture,
-        uint32_t base_array_layer,
-        uint32_t layer_count
-    );
-    void destroy_texture(Texture texture);
     Sampler create_sampler(const SamplerInfo& info);
     DescriptorSet create_descriptor_set(const PipelineLayout& pipeline_layout, uint32_t set_index);
     void update_descriptor_set(
