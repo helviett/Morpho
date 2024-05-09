@@ -12,6 +12,9 @@ workspace "Sandbox"
         defines { "NDEBUG" }
         optimize "On"
 
+    filter "toolset:clang"
+        buildoptions { "-Wno-missing-braces" }
+
 
 project "Morpho"
     kind "StaticLib"

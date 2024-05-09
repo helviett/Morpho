@@ -634,7 +634,6 @@ void Application::run() {
         100.0f
     );
     camera.set_position(glm::vec3(0.0f, 0.0f, 0.0f));
-    auto forward = camera.get_forward();
     init();
     main_loop();
 }
@@ -1385,7 +1384,6 @@ void Application::update(float delta) {
 }
 
 void Application::calculate_cascades() {
-    glm::mat4 camera_view = camera.get_view();
     glm::mat4 camera_to_world = camera.get_transform();
     glm::vec3 forward = -sun.direction;
     glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0.0f, 0.0f, 1.0f), forward));
@@ -1405,7 +1403,6 @@ void Application::calculate_cascades() {
     auto extent = context->get_swapchain_extent();
     extent.width = extent.height = std::max(extent.width, extent.height);
     uint64_t alignment = context->get_uniform_buffer_alignment();
-    float ranges[cascade_count * 2] = { 0.01f, 10.0f, 8.0f, 40.0f, 38.0f, 100.0f };
     float near = camera.get_near();
     float far = camera.get_far();
     float split_lamda = 0.10;
@@ -1673,7 +1670,6 @@ void Application::draw_primitive(
         std::cout << "Primitive with no material" << std::endl;
         return;
     }
-    uint32_t current_binding = 0;
     if (primitive.material != current_material_index) {
         auto& material = model.materials[primitive.material];
         cmd.bind_descriptor_set(material_descriptor_sets[primitive.material]);
@@ -1690,13 +1686,11 @@ void Application::draw_primitive(
     if (primitive_index == 0) {
         cmd.bind_descriptor_set(mesh_descriptor_sets[mesh_index]);
     }
-    current_binding = 0;
     for (auto& key_value : primitive.attributes) {
         if (attribute_name_to_location.find(key_value.first) == attribute_name_to_location.end()) {
             continue;
         }
         auto binding = attribute_name_to_binding.find(key_value.first)->second;
-        auto& attribute_name = key_value.first;
         auto accessor_index = key_value.second;
         auto& accessor = model.accessors[accessor_index];
         auto& buffer_view = model.bufferViews[accessor.bufferView];
@@ -1710,7 +1704,6 @@ void Application::draw_primitive(
         auto& accessor = model.accessors[primitive.indices];
         auto& buffer_view = model.bufferViews[accessor.bufferView];
         auto index_type = gltf_to_index_type(accessor.type, accessor.componentType);
-        auto index_type_size = (uint32_t)tinygltf::GetComponentSizeInBytes(accessor.componentType);
         auto index_count = (uint32_t)accessor.count;
         cmd.bind_index_buffer(
             buffers[buffer_view.buffer],

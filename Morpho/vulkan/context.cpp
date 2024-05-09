@@ -423,13 +423,13 @@ Context::FrameContext& Context::get_current_frame_context() {
 }
 
 void Context::release_buffer_on_frame_begin(Buffer buffer) {
-    get_current_frame_context().destructors.push_back([=] {
+    get_current_frame_context().destructors.push_back([=, this] {
         vmaDestroyBuffer(allocator, buffer.buffer, buffer.allocation);
     });
 }
 
 void Context::release_texture_on_frame_begin(Texture texture) {
-    get_current_frame_context().destructors.push_back([=] {
+    get_current_frame_context().destructors.push_back([=, this] {
         if (texture.owns_image)
         {
             vmaDestroyImage(allocator, texture.image, texture.allocation);
@@ -476,7 +476,7 @@ Framebuffer Context::acquire_framebuffer(const FramebufferInfo& info) {
     VkFramebuffer vk_framebuffer;
     vkCreateFramebuffer(device, &create_info, nullptr, &vk_framebuffer);
 
-    get_current_frame_context().destructors.push_back([=] {
+    get_current_frame_context().destructors.push_back([=, this] {
         vkDestroyFramebuffer(device, vk_framebuffer, nullptr);
     });
 
@@ -900,7 +900,6 @@ VkRenderPass Context::create_render_pass(const RenderPassInfo& info) {
     subpass.pColorAttachments = &references[reference_index];
     for (uint32_t j = 0; j < subpass_info.color_attachment_count; j++) {
         auto attachment_index = subpass_info.color_attachments[j];
-        auto& attachment_info = info.attachments[attachment_index];
         auto& reference = references[reference_index++];
         reference.attachment = attachment_index;
         reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;

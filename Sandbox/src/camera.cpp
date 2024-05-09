@@ -11,11 +11,12 @@ Camera::Camera(
     float aspect_ratio,
     float near_plane,
     float far_plane
-) : projection(perspective(fovy, aspect_ratio, near_plane, far_plane)),
+) :
+    position(glm::vec3(0.0f, 0.0f, 0.0f)),
     yaw(yaw),
     pitch(pitch),
+    projection(perspective(fovy, aspect_ratio, near_plane, far_plane)),
     world_up(world_up),
-    position(glm::vec3(0.0f, 0.0f, 0.0f)),
     g(1.0f / tan(fovy / 2.0f)),
     s(aspect_ratio),
     near(near_plane),
@@ -76,21 +77,8 @@ void Camera::calculate_view_if_needed() {
     forward.y = sin(glm::radians(pitch));
     forward.z = sin(glm::radians(yaw)) * cos(glm::radians(pitch));
     forward = glm::normalize(forward);
-    right = glm::normalize(glm::cross(glm::vec3(0.0f, 1.0f, 0.0f), forward));
+    right = glm::normalize(glm::cross(world_up, forward));
     up = glm::normalize(glm::cross(forward, right));
-    glm::vec4 point = glm::vec4(0.0f, 1.0f, 1.0f, 1.0);
-    glm::mat4 to_view_space_axis_configuration = glm::mat4(
-        1.0f,  0.0f,  0.0f, 0.0f,
-        0.0f, -1.0f,  0.0f, 0.0f,
-        0.0f,  0.0f, -1.0f, 0.0f,
-        0.0f,  0.0f,  0.0f, 1.0f
-    );
-    glm::mat4 from_view_space_axis_configuration = glm::mat4(
-        1.0f,  0.0f,  0.0f, 0.0f,
-        0.0f, -1.0f,  0.0f, 0.0f,
-        0.0f,  0.0f, -1.0f, 0.0f,
-        0.0f,  0.0f,  0.0f, 1.0f
-    );
     transform = glm::mat4(
          right.x,     right.y,     right.z,    0.0f,
         -up.x,       -up.y,       -up.z,       0.0f,
