@@ -85,7 +85,7 @@ void precalculate_transforms(
 }
 
 void Application::init() {
-    resource_manager = Morpho::Vulkan::ResourceManager::create(context);
+    resource_manager = Morpho::Vulkan::ResourceManager::get();
     z_prepass_shader = load_shader("./assets/shaders/z_prepass.vert.spv");
     gltf_depth_pass_vertex_shader = load_shader("./assets/shaders/gltf_depth_pass.vert.spv");
     gltf_spot_light_vertex_shader = load_shader("./assets/shaders/gltf_spot_light.vert.spv");
@@ -418,7 +418,7 @@ void Application::init() {
         .size = model.materials.size() * sizeof(MaterialParameters),
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = Morpho::Vulkan::BufferMap::PERSISTENTLY_MAPPED,
-    });
+    }, &material_ptr);
     for (uint32_t material_index = 0; material_index < model.materials.size(); material_index++) {
         auto& material = model.materials[material_index];
         material_descriptor_sets[material_index] = context->create_descriptor_set(light_pipeline_layout, 2);
@@ -473,7 +473,7 @@ void Application::init() {
         material_parameters[material_index].metalness_factor = material.pbrMetallicRoughness.metallicFactor;
         material_parameters[material_index].roughness_factor = material.pbrMetallicRoughness.roughnessFactor;
     }
-    memcpy(material_buffer.mapped, material_parameters.data(), material_parameters.size() * sizeof(MaterialParameters));
+    memcpy(material_ptr, material_parameters.data(), material_parameters.size() * sizeof(MaterialParameters));
 
     const uint64_t alignment = context->get_uniform_buffer_alignment();
     const uint64_t globals_size = Morpho::round_up(sizeof(Globals), alignment);
@@ -481,7 +481,7 @@ void Application::init() {
         .size = frame_in_flight_count * globals_size,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = Morpho::Vulkan::BufferMap::PERSISTENTLY_MAPPED,
-    });
+    }, &globals_ptr);
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
         global_descriptor_sets[i] = context->create_descriptor_set(light_pipeline_layout, 0);
         context->update_descriptor_set(
@@ -529,12 +529,12 @@ void Application::init() {
         .size = max_light_count * frame_in_flight_count * light_uniforms_max_size,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED,
-    });
+    }, &light_ptr);
     cube_map_face_buffer = resource_manager->create_buffer({
         .size = max_light_count * frame_in_flight_count * light_uniforms_max_size * 6,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED,
-    });
+    }, &cube_map_face_ptr);
     auto extent = context->get_swapchain_extent();
     depth_buffer = resource_manager->create_texture({
         .extent = { extent.width, extent.height, 1 },
@@ -545,12 +545,12 @@ void Application::init() {
         .size = Morpho::round_up(sizeof(DirectionalLight), alignment) * frame_in_flight_count,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED
-    });
+    }, &directional_light_uniform_ptr);
     csm_uniform_buffer = resource_manager->create_buffer({
         .size = Morpho::round_up(sizeof(CsmUniform), alignment) * frame_in_flight_count,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED
-    });
+    }, &csm_uniform_ptr);
     uint32_t max_side_length = std::max(extent.width, extent.height);
     cascaded_shadow_maps = resource_manager->create_texture({
         .extent = { max_side_length, max_side_length, 1 },
@@ -580,14 +580,14 @@ void Application::init() {
                 },
             }
         );
-        memcpy(directional_light_uniform_buffer.mapped + light_uniform_offset, &sun, sizeof(sun));
+        memcpy(directional_light_uniform_ptr + light_uniform_offset, &sun, sizeof(sun));
     }
     uint64_t directional_shadow_map_uniform_size = Morpho::round_up(sizeof(ViewProjection), alignment);
     directional_shadow_map_uniform_buffer = resource_manager->create_buffer({
         .size = directional_shadow_map_uniform_size * frame_in_flight_count * cascade_count,
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED,
-    });
+    }, &directional_shadow_map_uniform_ptr);
     for (uint32_t i = 0; i < cascade_count; i++) {
         directional_shadow_maps[i] = resource_manager->create_texture_view(cascaded_shadow_maps, i, 1);
     }
@@ -888,7 +888,7 @@ void Application::render_depth_pass_for_point_light(
         vp.view = glm::inverse(combined);
         uint32_t offset = frame_in_flight_count * light.descriptor_set_start_index * 6 * light_stride;
         offset += frame_index * 6 * light_stride + i * light_stride;
-        memcpy(cube_map_face_buffer.mapped + offset, &vp, sizeof(ViewProjection));
+        memcpy(cube_map_face_ptr + offset, &vp, sizeof(ViewProjection));
         auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
             .layout(depth_pass_layout)
             .extent(extent)
@@ -1180,7 +1180,7 @@ void Application::add_light(Light light) {
         uint32_t vp_offset = light_offset + i * light_stride;
         auto ds = context->create_descriptor_set(light_pipeline_layout, 1);
         uint32_t light_data_offset = vp_offset + Morpho::round_up(sizeof(ViewProjection), alignment);
-        memcpy((char*)light_buffer.mapped + light_data_offset, &light.light_data, light_data_size);
+        memcpy(light_ptr + light_data_offset, &light.light_data, light_data_size);
         context->update_descriptor_set(
             ds,
             {
@@ -1215,7 +1215,7 @@ void Application::add_light(Light light) {
                 uint32_t vp_offset = light_offset + i * light_stride * 6 + face_index * light_stride;
                 auto ds = context->create_descriptor_set(light_pipeline_layout, 1);
                 uint32_t light_data_offset = vp_offset + Morpho::round_up(sizeof(ViewProjection), alignment);
-                memcpy(cube_map_face_buffer.mapped + light_data_offset, &light.light_data, light_data_size);
+                memcpy(cube_map_face_ptr + light_data_offset, &light.light_data, light_data_size);
                 context->update_descriptor_set(
                     ds,
                     {
@@ -1373,14 +1373,14 @@ void Application::update(float delta) {
             );
         }
         vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
-        memcpy(light_buffer.mapped + offset, &vp, sizeof(ViewProjection));
+        memcpy(light_ptr + offset, &vp, sizeof(ViewProjection));
     }
     uint64_t globals_offset = frame_index * Morpho::round_up(sizeof(Globals), alignment);
     Globals globals;
     globals.view = camera.get_view();
     globals.proj = camera.get_projection();
     globals.camera_position = camera.get_position();
-    memcpy(globals_buffer.mapped + globals_offset, &globals, sizeof(Globals));
+    memcpy(globals_ptr + globals_offset, &globals, sizeof(Globals));
     calculate_cascades();
 }
 
@@ -1455,7 +1455,7 @@ void Application::calculate_cascades() {
         vp.view = world_to_light;
         vp.view[3] = glm::vec4(-light_pos.x, -light_pos.y, -light_pos.z, 1.0f);
         uint32_t offset = (cascade_index * frame_in_flight_count + frame_index) * Morpho::round_up(sizeof(ViewProjection), alignment);
-        memcpy(directional_shadow_map_uniform_buffer.mapped + offset, &vp, sizeof(vp));
+        memcpy(directional_shadow_map_uniform_ptr + offset, &vp, sizeof(vp));
         csm_uniform.ranges[cascade_index] = glm::vec4(range.x, range.y, 0.0f, 0.0f);
         if (cascade_index == 0) {
             csm_uniform.offsets[0] = glm::vec4(0.0f);
@@ -1480,12 +1480,12 @@ void Application::calculate_cascades() {
         }
     }
     memcpy(
-        csm_uniform_buffer.mapped + frame_index * Morpho::round_up(sizeof(csm_uniform), alignment),
+        csm_uniform_ptr + frame_index * Morpho::round_up(sizeof(csm_uniform), alignment),
         &csm_uniform,
         sizeof(csm_uniform)
     );
     memcpy(
-        directional_light_uniform_buffer.mapped + frame_index * Morpho::round_up(sizeof(DirectionalLight), alignment),
+        directional_light_uniform_ptr + frame_index * Morpho::round_up(sizeof(DirectionalLight), alignment),
         &sun,
         sizeof(sun)
     );

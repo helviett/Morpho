@@ -1,6 +1,7 @@
 #include "command_buffer.hpp"
 #include "vulkan/context.hpp"
 #include <vulkan/vulkan_core.h>
+#include "vulkan/resource_manager.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -33,11 +34,14 @@ void CommandBuffer::draw_indexed(
 
 void CommandBuffer::blit(const BlitInfo& info) {
     VkImageBlit regions[128]{};
+    ResourceManager* rm = ResourceManager::get();
+    Texture src_texture = rm->get_texture(info.src_texture);
+    Texture dst_texture = rm->get_texture(info.dst_texture);
     for (uint32_t i = 0; i < info.regions.size(); i++) {
         VkImageBlit& vk_region = regions[i];
         const TextureBlit& region = info.regions[i];
         vk_region.srcSubresource = {
-            .aspectMask = info.src_texture.aspect,
+            .aspectMask = src_texture.aspect,
             .mipLevel = region.src_subresource.mip_level,
             .baseArrayLayer = region.src_subresource.base_array_layer,
             .layerCount = region.src_subresource.layer_count,
@@ -45,7 +49,7 @@ void CommandBuffer::blit(const BlitInfo& info) {
         vk_region.srcOffsets[0] = info.regions[i].src_offsets[0];
         vk_region.srcOffsets[1] = info.regions[i].src_offsets[1];
         vk_region.dstSubresource = {
-            .aspectMask = info.dst_texture.aspect,
+            .aspectMask = dst_texture.aspect,
             .mipLevel = region.dst_subresource.mip_level,
             .baseArrayLayer = region.dst_subresource.base_array_layer,
             .layerCount = region.dst_subresource.layer_count,
@@ -55,9 +59,9 @@ void CommandBuffer::blit(const BlitInfo& info) {
     }
     vkCmdBlitImage(
         command_buffer,
-        info.src_texture.image,
+        src_texture.image,
         info.src_texture_layout,
-        info.dst_texture.image,
+        dst_texture.image,
         info.dst_texture_layout,
         info.regions.size(),
         regions,
@@ -65,13 +69,14 @@ void CommandBuffer::blit(const BlitInfo& info) {
     );
 }
 
-void CommandBuffer::bind_vertex_buffer(Buffer vertex_buffer, uint32_t binding, VkDeviceSize offset) {
-    auto vk_buffer = vertex_buffer.buffer;
+void CommandBuffer::bind_vertex_buffer(Handle<Buffer> vertex_buffer, uint32_t binding, VkDeviceSize offset) {
+    VkBuffer vk_buffer = ResourceManager::get()->get_buffer(vertex_buffer).buffer;
     vkCmdBindVertexBuffers(command_buffer, binding, 1, &vk_buffer, &offset);
 }
 
-void CommandBuffer::bind_index_buffer(Buffer index_buffer, VkIndexType index_type, VkDeviceSize offset) {
-    vkCmdBindIndexBuffer(command_buffer, index_buffer.buffer, offset, index_type);
+void CommandBuffer::bind_index_buffer(Handle<Buffer> index_buffer, VkIndexType index_type, VkDeviceSize offset) {
+    VkBuffer vk_buffer = ResourceManager::get()->get_buffer(index_buffer).buffer;
+    vkCmdBindIndexBuffer(command_buffer, vk_buffer, offset, index_type);
 }
 
 void CommandBuffer::copy_buffer(Buffer source, Buffer destination, VkDeviceSize size) const {
@@ -155,9 +160,10 @@ void CommandBuffer::barrier(
     }
     for (uint32_t i = 0; i < texture_barriers.size(); i++) {
         const TextureBarrier& barrier = texture_barriers[i];
+        Texture texture = ResourceManager::get()->get_texture(barrier.texture);
         VkImageMemoryBarrier& vk_barrier = image_barriers[i];
         vk_barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        vk_barrier.image = barrier.texture.image;
+        vk_barrier.image = texture.image;
         vk_barrier.oldLayout = barrier.old_layout;
         vk_barrier.newLayout = barrier.new_layout;
         vk_barrier.srcAccessMask = barrier.src_access;
@@ -166,7 +172,7 @@ void CommandBuffer::barrier(
         dst_stages |= barrier.dst_stages;
         vk_barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         vk_barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        vk_barrier.subresourceRange.aspectMask = barrier.texture.aspect;
+        vk_barrier.subresourceRange.aspectMask = texture.aspect;
         vk_barrier.subresourceRange.baseMipLevel = barrier.base_mip_level;
         vk_barrier.subresourceRange.levelCount = barrier.mip_level_count;
         vk_barrier.subresourceRange.baseArrayLayer = barrier.base_layer;

@@ -95,11 +95,21 @@ static void derive_stages_access_final_layout_from_texture_usage(
     // if (usage & VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT) {}
 }
 
-Buffer ResourceManager::create_buffer(const BufferInfo& info) {
+Handle<Buffer> ResourceManager::create_buffer(const BufferInfo& info, uint8_t** mapped_ptr) {
+    assert(
+        (mapped_ptr == nullptr && info.map != BufferMap::PERSISTENTLY_MAPPED)
+        || (mapped_ptr != nullptr && info.map != BufferMap::NONE)
+    );
     Buffer buffer = create_vk_buffer(info);
+    Handle<Buffer> handle = buffers.add(buffer);
+    bool create_mapped = mapped_ptr != nullptr && info.map != BufferMap::NONE;
+    if (create_mapped) {
+        map_buffer_helper(&buffer);
+        *mapped_ptr = buffer.mapped;
+    }
 
     if (info.initial_data == nullptr) {
-        return buffer;
+        return handle;
     }
     assert(info.initial_data_size <= info.size);
     if (info.map == BufferMap::NONE) {
@@ -119,15 +129,18 @@ Buffer ResourceManager::create_buffer(const BufferInfo& info) {
         derive_stages_and_access_from_buffer_usage(info.usage, &dst_stages, &memory_barrier.dstAccessMask);
         need_submit = 1;
     } else {
-        void* mapped;
-        vmaMapMemory(allocator, buffer.allocation, &mapped);
-        memcpy(mapped, info.initial_data, info.initial_data_size);
-        vmaUnmapMemory(allocator, buffer.allocation);
+        if (create_mapped) {
+            memcpy(buffer.mapped, info.initial_data, info.initial_data_size);
+        } else {
+            map_buffer_helper(&buffer);
+            memcpy(buffer.mapped, info.initial_data, info.initial_data_size);
+            unmap_buffer_helper(&buffer);
+        }
     }
-    return buffer;
+    return handle;
 }
 
-Texture ResourceManager::create_texture(const TextureInfo& texture_info) {
+Handle<Texture> ResourceManager::create_texture(const TextureInfo& texture_info) {
     VkImageCreateInfo image_info{};
     image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
     image_info.flags = texture_info.flags;
@@ -203,6 +216,7 @@ Texture ResourceManager::create_texture(const TextureInfo& texture_info) {
     texture.format = texture_info.format;
     texture.aspect = aspect;
     texture.owns_image = true;
+    Handle<Texture> handle = textures.add(texture);
 
     VkImageMemoryBarrier post_barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
     post_barrier.subresourceRange.aspectMask = aspect;
@@ -225,7 +239,7 @@ Texture ResourceManager::create_texture(const TextureInfo& texture_info) {
 
         need_submit = 1;
 
-        return texture;
+        return handle;
     }
 
     VkImageMemoryBarrier pre_barrier{ VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER };
@@ -264,15 +278,17 @@ Texture ResourceManager::create_texture(const TextureInfo& texture_info) {
 
     arrput(post_barriers, post_barrier);
 
-    return texture;
+    return handle;
 }
 
-Texture ResourceManager::create_texture_view(
-    const Texture& texture,
+Handle<Texture> ResourceManager::create_texture_view(
+    Handle<Texture> texture_handle,
     uint32_t base_array_layer,
     uint32_t layer_count
 ) {
     VkImageViewType view_type = VK_IMAGE_VIEW_TYPE_2D;
+
+    Texture texture = textures.get(texture_handle);
 
     VkImageAspectFlags aspect = texture.aspect;
 
@@ -295,7 +311,12 @@ Texture ResourceManager::create_texture_view(
     view.aspect = texture.aspect;
     view.image = texture.image;
     view.image_view = vk_image_view;
-    return view;
+
+    return textures.add(view);
+}
+
+Handle<Texture> ResourceManager::register_texture(Texture texture) {
+    return textures.add(texture);
 }
 
 void ResourceManager::commit() {
@@ -346,6 +367,16 @@ void ResourceManager::commit() {
     arrsetlen(post_barriers, 0);
     committed = 1;
     need_submit = 0;
+}
+
+Buffer ResourceManager::get_buffer(Handle<Buffer> handle) {
+    assert(buffers.is_valid(handle));
+    return buffers.get(handle);
+}
+
+Texture ResourceManager::get_texture(Handle<Texture> handle) {
+    assert(textures.is_valid(handle));
+    return textures.get(handle);
 }
 
 void ResourceManager::next_frame() {
@@ -446,6 +477,18 @@ Buffer ResourceManager::create_vk_buffer(const BufferInfo& info) {
     return buffer;
 }
 
+
+void ResourceManager::map_buffer_helper(Buffer* buffer) {
+    vmaMapMemory(allocator, buffer->allocation, (void**)&buffer->mapped);
+}
+
+void ResourceManager::unmap_buffer_helper(Buffer* buffer) {
+    vmaUnmapMemory(allocator, buffer->allocation);
+    buffer->mapped = nullptr;
+}
+
+ResourceManager* g_resource_manager = nullptr;
+
 ResourceManager* ResourceManager::create(Context* context) {
     ResourceManager* rm = (ResourceManager*)malloc(sizeof(ResourceManager));
     memset(rm, 0, sizeof(ResourceManager));
@@ -457,13 +500,18 @@ ResourceManager* ResourceManager::create(Context* context) {
     rm->next_frame();
     rm->queue = context->graphics_queue;
     rm->device = context->device;
-    return rm;
+    return g_resource_manager = rm;
 }
 
 void ResourceManager::destroy(ResourceManager* rm) {
     free(rm->pre_cmd);
     rm->context->destroy_cmd_pool(rm->cmd_pool);
     free(rm);
+    g_resource_manager = nullptr;
+}
+
+ResourceManager* ResourceManager::get() {
+    return g_resource_manager;
 }
 
 }

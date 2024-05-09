@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <vulkan/vulkan_core.h>
 #include "common/span.hpp"
+#include "common/generational_arena.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -100,12 +101,12 @@ struct DescriptorSet {
 };
 
 struct TextureDescriptorInfo {
-    Texture texture;
+    Morpho::Handle<Texture> texture;
     Sampler sampler;
 };
 
 struct BufferDescriptorInfo {
-    Buffer buffer;
+    Handle<Buffer> buffer;
     uint64_t offset;
     uint64_t range;
 };
@@ -193,14 +194,14 @@ struct FramebufferInfo {
     static constexpr uint32_t max_attachment_count = 8 + 1;
     RenderPassLayout layout;
     uint32_t attachment_count = 0;
-    Texture attachments[max_attachment_count];
+    Handle<Texture> attachments[max_attachment_count];
     VkExtent2D extent;
 };
 
 class FramebufferInfoBuilder {
 public:
     FramebufferInfoBuilder& layout(const RenderPassLayout& layout);
-    FramebufferInfoBuilder& attachment(Texture texture);
+    FramebufferInfoBuilder& attachment(Handle<Texture> texture);
     FramebufferInfoBuilder& extent(VkExtent2D extent);
     FramebufferInfo info();
 private:

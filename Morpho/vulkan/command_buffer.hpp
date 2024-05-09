@@ -9,7 +9,7 @@ namespace Morpho::Vulkan {
 class Context;
 
 struct TextureBarrier {
-    Texture texture;
+    Handle<Texture> texture;
     VkImageLayout old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
     VkImageLayout new_layout;
     uint32_t base_layer = 0;
@@ -40,9 +40,9 @@ struct TextureBlit {
 };
 
 struct BlitInfo {
-    Texture src_texture;
+    Handle<Texture> src_texture;
     VkImageLayout src_texture_layout;
-    Texture dst_texture;
+    Handle<Texture> dst_texture;
     VkImageLayout dst_texture_layout;
     VkFilter filter = VK_FILTER_LINEAR;
     Span<const TextureBlit> regions;
@@ -53,8 +53,8 @@ public:
     CommandBuffer(VkCommandBuffer command_buffer);
     VkCommandBuffer get_vulkan_handle() const;
     void end_render_pass();
-    void bind_vertex_buffer(Buffer vertex_buffer, uint32_t binding, VkDeviceSize offset = 0);
-    void bind_index_buffer(Buffer index_buffer, VkIndexType index_type, VkDeviceSize offset = 0);
+    void bind_vertex_buffer(Handle<Buffer> vertex_buffer, uint32_t binding, VkDeviceSize offset = 0);
+    void bind_index_buffer(Handle<Buffer> index_buffer, VkIndexType index_type, VkDeviceSize offset = 0);
     void draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance);
     void draw_indexed(
         uint32_t index_count,

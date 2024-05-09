@@ -86,8 +86,6 @@ public:
     RenderPass acquire_render_pass(const RenderPassInfo& info);
     Framebuffer acquire_framebuffer(const FramebufferInfo& info);
     Pipeline create_pipeline(PipelineInfo &pipeline_info);
-    void map_memory(VmaAllocation allocation, void **map);
-    void unmap_memory(VmaAllocation allocation);
     PipelineLayout create_pipeline_layout(const PipelineLayoutInfo& pipeline_layout_info);
     void destroy_pipline_layout(const PipelineLayout& pipeline_layout);
     Sampler create_sampler(const SamplerInfo& info);
@@ -103,7 +101,7 @@ public:
     uint64_t get_uniform_buffer_alignment() const;
 
     // public WSI stuff
-    Texture get_swapchain_texture() const;
+    Handle<Texture> get_swapchain_texture() const;
     VkExtent2D get_swapchain_extent() const;
     VkFormat get_swapchain_format() const;
     // end of WSI stuff
@@ -172,7 +170,7 @@ private:
     GLFWwindow* window;
     VkSurfaceKHR surface;
     VkSwapchainKHR swapchain;
-    std::vector<Texture> swapchain_textures;
+    std::vector<Handle<Texture>> swapchain_texture_handles;
     VkFormat swapchain_format;
     VkExtent2D swapchain_extent;
     void create_surface();

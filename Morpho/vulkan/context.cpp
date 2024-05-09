@@ -72,7 +72,6 @@ void Context::init(GLFWwindow* window) {
 
     VK_CHECK(try_create_device(), "Unable to create logical device.")
     retrieve_queues();
-    create_swapchain();
 
     VmaAllocatorCreateInfo allocatorInfo = {};
     allocatorInfo.vulkanApiVersion = VK_API_VERSION_1_1;
@@ -81,6 +80,10 @@ void Context::init(GLFWwindow* window) {
     allocatorInfo.instance = instance;
 
     vmaCreateAllocator(&allocatorInfo, &allocator);
+
+    ResourceManager::create(this);
+
+    create_swapchain();
 
     VkDescriptorSetLayoutCreateInfo vk_descriptor_set_layout_info = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, };
     VK_CHECK(
@@ -309,10 +312,13 @@ void Context::create_swapchain() {
 
     uint32_t swapchain_image_count;
     vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, nullptr);
-    swapchain_textures.resize(swapchain_image_count);
+    assert(swapchain_image_count <= 16);
+    Texture swapchain_textures[16];
+    swapchain_texture_handles.resize(swapchain_image_count);
     std::vector<VkImage> swapchain_vk_images(swapchain_image_count);
     vkGetSwapchainImagesKHR(device, swapchain, &swapchain_image_count, swapchain_vk_images.data());
-    swapchain_textures.resize(swapchain_image_count);
+    swapchain_texture_handles.resize(swapchain_image_count);
+    ResourceManager* rm = ResourceManager::get();
     for (uint32_t i = 0; i < swapchain_image_count; i++) {
         swapchain_textures[i].image = swapchain_vk_images[i];
         swapchain_textures[i].format = swapchain_format;
@@ -334,6 +340,7 @@ void Context::create_swapchain() {
         vkCreateImageView(device, &info, nullptr, &image_view);
         swapchain_textures[i].image_view = image_view;
         swapchain_textures[i].aspect = VK_IMAGE_ASPECT_COLOR_BIT;
+        swapchain_texture_handles[i] = rm->register_texture(swapchain_textures[i]);
     }
 }
 
@@ -454,7 +461,7 @@ Framebuffer Context::acquire_framebuffer(const FramebufferInfo& info) {
     // For now assume image_view is swapchain image view.
     VkImageView image_views[FramebufferInfo::max_attachment_count];
     for (uint32_t i = 0; i < info.attachment_count; i++) {
-        image_views[i] = info.attachments[i].image_view;
+        image_views[i] = ResourceManager::get()->get_texture(info.attachments[i]).image_view;
     }
 
     VkFramebufferCreateInfo create_info{};
@@ -478,8 +485,8 @@ Framebuffer Context::acquire_framebuffer(const FramebufferInfo& info) {
     return framebuffer;
 }
 
-Texture Context::get_swapchain_texture() const {
-    return swapchain_textures[swapchain_image_index];
+Handle<Texture> Context::get_swapchain_texture() const {
+    return swapchain_texture_handles[swapchain_image_index];
 }
 
 Shader Context::acquire_shader(char* data, uint32_t size, Morpho::Vulkan::ShaderStage stage) {
@@ -502,7 +509,6 @@ VkExtent2D Context::get_swapchain_extent() const {
 }
 
 Pipeline Context::create_pipeline(PipelineInfo &pipeline_info) {
-    size_t hash = 0;
     VkPipelineShaderStageCreateInfo stages[(uint32_t)ShaderStage::MAX_VALUE];
     for (uint32_t i = 0; i < pipeline_info.shader_count; i++) {
         auto& shader = pipeline_info.shaders[i];
@@ -762,6 +768,7 @@ void Context::update_descriptor_set(
     uint8_t vk_infos[info_size];
     uint32_t current_write_index = 0;
     uint32_t infos_offset = 0;
+    ResourceManager* rm = ResourceManager::get();
     for (uint32_t request_index = 0; request_index < update_requests.size(); request_index++) {
         const DescriptorSetUpdateRequest& request = update_requests[request_index];
         VkWriteDescriptorSet* write = &writes[current_write_index];
@@ -793,7 +800,7 @@ void Context::update_descriptor_set(
                 for (uint32_t i = 0; i < slot_count; i++) {
                     VkDescriptorBufferInfo& vk_buffer_info = vk_buffer_infos[i];
                     const BufferDescriptorInfo& buffer_info = request.buffer_infos[current_texture_info + i];
-                    vk_buffer_info.buffer = buffer_info.buffer.buffer;
+                    vk_buffer_info.buffer = rm->get_buffer(buffer_info.buffer).buffer;
                     vk_buffer_info.offset = buffer_info.offset;
                     vk_buffer_info.range = buffer_info.range;
                 }
@@ -822,10 +829,11 @@ void Context::update_descriptor_set(
                 for (uint32_t i = 0; i < slot_count; i++) {
                     VkDescriptorImageInfo& vk_image_info = vk_image_infos[i];
                     const TextureDescriptorInfo& texture_info = request.texture_infos[current_texture_info + i];
+                    Texture texture = rm->get_texture(texture_info.texture);
                     vk_image_info = {};
                     vk_image_info.sampler = texture_info.sampler.sampler;
-                    vk_image_info.imageView = texture_info.texture.image_view;
-                    vk_image_info.imageLayout = is_depth_format(texture_info.texture.format)
+                    vk_image_info.imageView = texture.image_view;
+                    vk_image_info.imageLayout = is_depth_format(texture.format)
                         ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL
                         : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
                 }
@@ -955,7 +963,6 @@ RenderPassLayout Context::acquire_render_pass_layout(const RenderPassLayoutInfo&
         attachment.store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE;
     }
     render_pass_info.layout.info = info;
-    size_t hash = 0;
     VkRenderPass render_pass;
     render_pass = create_render_pass(render_pass_info);
     RenderPassLayout render_pass_layout{};
@@ -965,7 +972,6 @@ RenderPassLayout Context::acquire_render_pass_layout(const RenderPassLayoutInfo&
 }
 
 RenderPass Context::acquire_render_pass(const RenderPassInfo& info) {
-    size_t hash = 0;
     VkRenderPass vk_render_pass;
     vk_render_pass = create_render_pass(info);
     RenderPass render_pass{};

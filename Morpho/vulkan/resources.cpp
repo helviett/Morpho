@@ -50,7 +50,7 @@ FramebufferInfoBuilder& FramebufferInfoBuilder::layout(const RenderPassLayout& l
     framebuffer_info.layout = layout;
     return *this;
 }
-FramebufferInfoBuilder& FramebufferInfoBuilder::attachment(Texture image_view) {
+FramebufferInfoBuilder& FramebufferInfoBuilder::attachment(Morpho::Handle<Texture> image_view) {
     assert(framebuffer_info.attachment_count < FramebufferInfo::max_attachment_count);
     framebuffer_info.attachments[framebuffer_info.attachment_count++] = image_view;
     return *this;

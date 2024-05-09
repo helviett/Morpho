@@ -1,5 +1,7 @@
+#pragma once
 #include "resources.hpp"
 #include <vulkan/vulkan.h>
+#include "common/generational_arena.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -19,14 +21,21 @@ public:
 
     static ResourceManager* create(Context* context);
     static void destroy(ResourceManager* rm);
+    // Temp solution.
+    static ResourceManager* get();
 
-    Buffer create_buffer(const BufferInfo& info);
-    Texture create_texture(const TextureInfo& info);
-    Texture create_texture_view(
-        const Texture& texture,
+    Handle<Buffer> create_buffer(const BufferInfo& info, uint8_t**mapped_ptr = nullptr);
+    Handle<Texture> create_texture(const TextureInfo& info);
+    Handle<Texture> create_texture_view(
+        Handle<Texture> texture,
         uint32_t base_array_layer,
         uint32_t layer_count
     );
+
+    Handle<Texture> register_texture(Texture texture);
+
+    Buffer get_buffer(Handle<Buffer> handle);
+    Texture get_texture(Handle<Texture> handle);
 
     void commit();
     void next_frame();
@@ -41,6 +50,9 @@ private:
     };
 
     static const uint64_t default_staging_buffer_size = 128 * 1024 * 1024;
+
+    GenerationalArena<Buffer> buffers;
+    GenerationalArena<Texture> textures;
 
     VmaAllocator allocator = VK_NULL_HANDLE;
     StagingBuffer* used_staging_buffers = nullptr;
@@ -64,6 +76,8 @@ private:
 
     StagingBuffer* acquire_staging_buffer(VkDeviceSize size);
     Buffer create_vk_buffer(const BufferInfo& info);
+    void map_buffer_helper(Buffer* buffer);
+    void unmap_buffer_helper(Buffer* buffer);
 };
 
 }
