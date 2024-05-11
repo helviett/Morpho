@@ -73,21 +73,20 @@ public:
         Span<const BufferBarrier> buffer_barriers
     );
     void begin_render_pass(
-        RenderPass render_pass,
+        Handle<RenderPass> render_pass,
         Framebuffer framebuffer,
         VkRect2D render_area,
         std::initializer_list<VkClearValue> clear_values
     );
-    void bind_pipeline(const Pipeline& pipeline);
+    void bind_pipeline(Handle<Pipeline> pipeline);
 
     void reset();
     void set_viewport(VkViewport viewport);
     void set_scissor(VkRect2D scissor);
-    void bind_descriptor_set(const DescriptorSet& set);
+    void bind_descriptor_set(Handle<DescriptorSet> set_handle);
 private:
     VkCommandBuffer command_buffer;
-    RenderPass current_render_pass = RenderPass();
-    Pipeline pipeline;
+    Handle<RenderPass> current_render_pass = Handle<RenderPass>::null();
     Context* context;
     DescriptorSet descriptor_sets[Limits::MAX_DESCRIPTOR_SET_COUNT];
 };

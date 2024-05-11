@@ -15,7 +15,7 @@ CommandBuffer::CommandBuffer(VkCommandBuffer command_buffer) {
 
 void CommandBuffer::end_render_pass() {
     vkCmdEndRenderPass(command_buffer);
-    current_render_pass = RenderPass();
+    current_render_pass = Handle<RenderPass>::null();
 }
 
 void CommandBuffer::draw(uint32_t vertex_count, uint32_t instance_count, uint32_t first_vertex, uint32_t first_instance) {
@@ -203,28 +203,29 @@ void CommandBuffer::set_scissor(VkRect2D scissor) {
 }
 
 void CommandBuffer::begin_render_pass(
-    RenderPass render_pass,
+    Handle<RenderPass> render_pass,
     Framebuffer framebuffer,
     VkRect2D render_area,
     std::initializer_list<VkClearValue> clear_values
 ) {
+    ResourceManager* rm = ResourceManager::get();
     VkRenderPassBeginInfo begin_info{};
     begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     begin_info.clearValueCount = (uint32_t)clear_values.size();
     begin_info.pClearValues = clear_values.begin();
-    begin_info.renderPass = render_pass.render_pass;
+    begin_info.renderPass = rm->get_render_pass(render_pass).render_pass;
     begin_info.framebuffer = framebuffer.framebuffer;
     begin_info.renderArea = render_area;
     current_render_pass = render_pass;
     vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
 }
 
-void CommandBuffer::bind_pipeline(const Pipeline& pipeline) {
-    this->pipeline = pipeline;
-    vkCmdBindPipeline(this->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline.pipeline);
+void CommandBuffer::bind_pipeline(Handle<Pipeline> pipeline) {
+    vkCmdBindPipeline(this->command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, ResourceManager::get()->get_pipeline(pipeline).pipeline);
 }
 
-void CommandBuffer::bind_descriptor_set(const DescriptorSet& set) {
+void CommandBuffer::bind_descriptor_set(Handle<DescriptorSet> set_handle) {
+    DescriptorSet set = ResourceManager::get()->get_descriptor_set(set_handle);
     vkCmdBindDescriptorSets(
         this->command_buffer,
         VK_PIPELINE_BIND_POINT_GRAPHICS,

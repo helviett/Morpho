@@ -19,6 +19,18 @@ Handle<T> Handle<T>::null() {
 }
 
 template<typename T>
+bool operator==(const Handle<T>& lhs, const Handle<T>& rhs)
+{
+    return lhs.index == rhs.index && lhs.gen == rhs.gen;
+}
+
+template<typename T>
+bool operator!=(const Handle<T>& lhs, const Handle<T>& rhs)
+{
+    return !(lhs == rhs);
+}
+
+template<typename T>
 class GenerationalArena {
 public:
     GenerationalArena();

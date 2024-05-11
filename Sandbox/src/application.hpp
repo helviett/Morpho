@@ -149,63 +149,63 @@ private:
     Morpho::Vulkan::Context* context;
     Morpho::Vulkan::ResourceManager* resource_manager;
 
-    Morpho::Vulkan::RenderPassLayout color_pass_layout;
-    Morpho::Vulkan::RenderPassLayout depth_pass_layout;
-    Morpho::Vulkan::PipelineLayout light_pipeline_layout;
-    Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw_depth_clamp;
-    Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw_depth_clamp_double_sided;
-    Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw;
-    Morpho::Vulkan::Pipeline depth_pass_pipeline_ccw_double_sided;
-    Morpho::Vulkan::Pipeline depth_pass_pipeline_cw;
-    Morpho::Vulkan::Pipeline depth_pass_pipeline_cw_double_sided;
-    Morpho::Vulkan::Pipeline spotlight_pipeline;
-    Morpho::Vulkan::Pipeline spotlight_pipeline_double_sided;
-    Morpho::Vulkan::Pipeline pointlight_pipeline;
-    Morpho::Vulkan::Pipeline pointlight_pipeline_double_sided;
-    Morpho::Vulkan::Pipeline directional_light_pipeline;
-    Morpho::Vulkan::Pipeline directional_light_pipeline_double_sided;
-    Morpho::Vulkan::Pipeline no_light_pipeline;
-    Morpho::Vulkan::Pipeline no_light_pipeline_double_sided;
-    Morpho::Vulkan::Pipeline shadow_map_visualization_pipeline;
-    Morpho::Vulkan::Pipeline z_prepass_pipeline;
-    Morpho::Vulkan::Pipeline z_prepass_pipeline_double_sided;
-    Morpho::Vulkan::RenderPass color_pass;
-    Morpho::Vulkan::RenderPass depth_pass;
-    Morpho::Vulkan::Shader z_prepass_shader;
-    Morpho::Vulkan::Shader gltf_depth_pass_vertex_shader;
-    Morpho::Vulkan::Shader gltf_spot_light_vertex_shader;
-    Morpho::Vulkan::Shader gltf_point_light_vertex_shader;
-    Morpho::Vulkan::Shader gltf_spot_light_fragment_shader;
-    Morpho::Vulkan::Shader gltf_point_light_fragment_shader;
-    Morpho::Vulkan::Shader gltf_directional_light_vertex_shader;
-    Morpho::Vulkan::Shader gltf_directional_light_fragment_shader;
-    Morpho::Vulkan::Shader no_light_vertex_shader;
-    Morpho::Vulkan::Shader no_light_fragment_shader;
-    Morpho::Vulkan::Shader full_screen_triangle_shader;
-    Morpho::Vulkan::Shader shadow_map_spot_light_fragment_shader;
-    Morpho::Vulkan::Sampler default_sampler;
-    Morpho::Vulkan::Sampler shadow_sampler;
+    Morpho::Handle<Morpho::Vulkan::RenderPassLayout> color_pass_layout;
+    Morpho::Handle<Morpho::Vulkan::RenderPassLayout> depth_pass_layout;
+    Morpho::Handle<Morpho::Vulkan::RenderPass> color_pass;
+    Morpho::Handle<Morpho::Vulkan::RenderPass> depth_pass;
+    Morpho::Handle<Morpho::Vulkan::PipelineLayout> light_pipeline_layout;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> depth_pass_pipeline_ccw_depth_clamp;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> depth_pass_pipeline_ccw_depth_clamp_double_sided;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> depth_pass_pipeline_ccw;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> depth_pass_pipeline_ccw_double_sided;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> depth_pass_pipeline_cw;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> depth_pass_pipeline_cw_double_sided;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> spotlight_pipeline;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> spotlight_pipeline_double_sided;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> pointlight_pipeline;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> pointlight_pipeline_double_sided;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> directional_light_pipeline;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> directional_light_pipeline_double_sided;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> no_light_pipeline;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> no_light_pipeline_double_sided;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> shadow_map_visualization_pipeline;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> z_prepass_pipeline;
+    Morpho::Handle<Morpho::Vulkan::Pipeline> z_prepass_pipeline_double_sided;
+    Morpho::Handle<Morpho::Vulkan::Shader> z_prepass_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> gltf_depth_pass_vertex_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> gltf_spot_light_vertex_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> gltf_point_light_vertex_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> gltf_spot_light_fragment_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> gltf_point_light_fragment_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> gltf_directional_light_vertex_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> gltf_directional_light_fragment_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> no_light_vertex_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> no_light_fragment_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> full_screen_triangle_shader;
+    Morpho::Handle<Morpho::Vulkan::Shader> shadow_map_spot_light_fragment_shader;
+    Morpho::Handle<Morpho::Vulkan::Sampler> default_sampler;
+    Morpho::Handle<Morpho::Vulkan::Sampler> shadow_sampler;
     Morpho::Handle<Morpho::Vulkan::Texture> white_texture;
     Morpho::Handle<Morpho::Vulkan::Texture> depth_buffer;
     std::vector<Morpho::Handle<Morpho::Vulkan::Buffer>> buffers;
     std::vector<Morpho::Handle<Morpho::Vulkan::Texture>> textures;
-    std::vector<Morpho::Vulkan::Sampler> samplers;
+    std::vector<Morpho::Handle<Morpho::Vulkan::Sampler>> samplers;
     Morpho::Handle<Morpho::Vulkan::Buffer> globals_buffer;
     uint8_t* globals_ptr = nullptr;
-    Morpho::Vulkan::DescriptorSet global_descriptor_sets[frame_in_flight_count];
+    Morpho::Handle<Morpho::Vulkan::DescriptorSet> global_descriptor_sets[frame_in_flight_count];
     Morpho::Handle<Morpho::Vulkan::Buffer> material_buffer;
     uint8_t* material_ptr = nullptr;
-    std::vector<Morpho::Vulkan::DescriptorSet> material_descriptor_sets;
+    std::vector<Morpho::Handle<Morpho::Vulkan::DescriptorSet>> material_descriptor_sets;
     Morpho::Handle<Morpho::Vulkan::Buffer> light_buffer;
     uint8_t* light_ptr = nullptr;
-    std::vector<Morpho::Vulkan::DescriptorSet> light_descriptor_sets;
-    Morpho::Vulkan::DescriptorSet shadow_map_visualization_descriptor_set[frame_in_flight_count];
+    std::vector<Morpho::Handle<Morpho::Vulkan::DescriptorSet>> light_descriptor_sets;
+    Morpho::Handle<Morpho::Vulkan::DescriptorSet> shadow_map_visualization_descriptor_set[frame_in_flight_count];
     Morpho::Handle<Morpho::Vulkan::Buffer> mesh_uniforms;
-    std::vector<Morpho::Vulkan::DescriptorSet> mesh_descriptor_sets;
+    std::vector<Morpho::Handle<Morpho::Vulkan::DescriptorSet>> mesh_descriptor_sets;
     // TODO: temp solution just to keep light code consistent.
     Morpho::Handle<Morpho::Vulkan::Buffer> cube_map_face_buffer;
     uint8_t* cube_map_face_ptr = nullptr;
-    std::vector<Morpho::Vulkan::DescriptorSet> cube_map_face_descriptor_sets;
+    std::vector<Morpho::Handle<Morpho::Vulkan::DescriptorSet>> cube_map_face_descriptor_sets;
     uint32_t frames_total = 0;
     uint32_t frame_index = 0;
     std::vector<Light> lights;
@@ -218,9 +218,9 @@ private:
     Morpho::Handle<Morpho::Vulkan::Buffer> directional_light_uniform_buffer;
     uint8_t* directional_light_uniform_ptr = nullptr;
     Morpho::Handle<Morpho::Vulkan::Texture> cascaded_shadow_maps;
-    Morpho::Vulkan::DescriptorSet csm_descriptor_sets[frame_in_flight_count];
+    Morpho::Handle<Morpho::Vulkan::DescriptorSet> csm_descriptor_sets[frame_in_flight_count];
     Morpho::Handle<Morpho::Vulkan::Texture> directional_shadow_maps[cascade_count];
-    Morpho::Vulkan::DescriptorSet directional_shadow_map_descriptor_sets[frame_in_flight_count * cascade_count];
+    Morpho::Handle<Morpho::Vulkan::DescriptorSet> directional_shadow_map_descriptor_sets[frame_in_flight_count * cascade_count];
 
 
 
@@ -239,7 +239,7 @@ private:
     tinygltf::TinyGLTF loader;
     tinygltf::Model model;
     int current_material_index = -1;
-    Morpho::Vulkan::Pipeline currently_bound_pipeline = {};
+    Morpho::Handle<Morpho::Vulkan::Pipeline> currently_bound_pipeline = Morpho::Handle<Morpho::Vulkan::Pipeline>::null();
     // Perhaps should be retrieved via reflection.
     std::map<std::string, uint32_t> attribute_name_to_location = {
         {"POSITION", 0},
@@ -271,37 +271,37 @@ private:
     void draw_model(
         const tinygltf::Model& model,
         Morpho::Vulkan::CommandBuffer& cmd,
-        const Morpho::Vulkan::Pipeline& normal_pipeline,
-        const Morpho::Vulkan::Pipeline& double_sided_pipeline
+        Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+        Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
     void draw_scene(
         const tinygltf::Model& model,
         const tinygltf::Scene& scene,
         Morpho::Vulkan::CommandBuffer& cmd,
-        const Morpho::Vulkan::Pipeline& normal_pipeline,
-        const Morpho::Vulkan::Pipeline& double_sided_pipeline
+        Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+        Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
     void draw_node(
         const tinygltf::Model& model,
         const tinygltf::Node& node,
         Morpho::Vulkan::CommandBuffer& cmd,
-        const Morpho::Vulkan::Pipeline& normal_pipeline,
-        const Morpho::Vulkan::Pipeline& double_sided_pipeline
+        Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+        Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
     void draw_mesh(
         const tinygltf::Model& model,
         uint32_t mesh_index,
         Morpho::Vulkan::CommandBuffer& cmd,
-        const Morpho::Vulkan::Pipeline& normal_pipeline,
-        const Morpho::Vulkan::Pipeline& double_sided_pipeline
+        Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+        Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
     void draw_primitive(
         const tinygltf::Model& model,
         uint32_t mesh_index,
         uint32_t primitive_index,
         Morpho::Vulkan::CommandBuffer& cmd,
-        const Morpho::Vulkan::Pipeline& normal_pipeline,
-        const Morpho::Vulkan::Pipeline& double_sided_pipeline
+        Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+        Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
     void render_depth_pass_for_spot_light(
         Morpho::Vulkan::CommandBuffer& cmd,
@@ -324,7 +324,7 @@ private:
         const Light& light
     );
     void add_light(Light light);
-    Morpho::Vulkan::Shader load_shader(const std::string& path);
+    Morpho::Handle<Morpho::Vulkan::Shader> load_shader(const std::string& path);
     static void process_keyboard_input(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void process_cursor_position(GLFWwindow* window, double xpos, double ypos);
     static void process_mouse_button_input(GLFWwindow* window, int button, int action, int mods);

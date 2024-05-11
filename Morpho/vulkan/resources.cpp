@@ -25,7 +25,7 @@ RenderPassLayoutInfo RenderPassLayoutInfoBuilder::info() {
     return layout_info;
 }
 
-RenderPassInfoBuilder& RenderPassInfoBuilder::layout(const RenderPassLayout& layout) {
+RenderPassInfoBuilder& RenderPassInfoBuilder::layout(Handle<RenderPassLayout> layout) {
     render_pass_info.layout = layout;
     return *this;
 }
@@ -46,7 +46,7 @@ RenderPassInfo RenderPassInfoBuilder::info() {
     return render_pass_info;
 }
 
-FramebufferInfoBuilder& FramebufferInfoBuilder::layout(const RenderPassLayout& layout) {
+FramebufferInfoBuilder& FramebufferInfoBuilder::layout(Handle<RenderPassLayout> layout) {
     framebuffer_info.layout = layout;
     return *this;
 }

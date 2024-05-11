@@ -81,19 +81,7 @@ public:
     void end_frame();
     CommandBuffer acquire_command_buffer();
     void submit(CommandBuffer command_buffer);
-    Shader acquire_shader(char* data, uint32_t size, Morpho::Vulkan::ShaderStage stage);
-    RenderPassLayout acquire_render_pass_layout(const RenderPassLayoutInfo& info);
-    RenderPass acquire_render_pass(const RenderPassInfo& info);
     Framebuffer acquire_framebuffer(const FramebufferInfo& info);
-    Pipeline create_pipeline(PipelineInfo &pipeline_info);
-    PipelineLayout create_pipeline_layout(const PipelineLayoutInfo& pipeline_layout_info);
-    void destroy_pipline_layout(const PipelineLayout& pipeline_layout);
-    Sampler create_sampler(const SamplerInfo& info);
-    DescriptorSet create_descriptor_set(const PipelineLayout& pipeline_layout, uint32_t set_index);
-    void update_descriptor_set(
-        const DescriptorSet& descriptor_set,
-        Span<const DescriptorSetUpdateRequest> update_requests
-    );
 
     void create_cmd_pool(CmdPool** pool);
     void destroy_cmd_pool(CmdPool* pool);
@@ -123,9 +111,6 @@ private:
     VkPhysicalDevice gpu = VK_NULL_HANDLE;
     VkInstance instance = VK_NULL_HANDLE;
     VkDevice device = VK_NULL_HANDLE;
-    VkDescriptorSetLayout empty_descriptor_set_layout;
-    VkDescriptorPool empty_descriptor_pool;
-    VkDescriptorSet empty_descriptor_set;
     VkQueue graphics_queue;
     uint32_t graphics_queue_family_index;
     VmaAllocator allocator;

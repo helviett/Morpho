@@ -102,7 +102,7 @@ struct DescriptorSet {
 
 struct TextureDescriptorInfo {
     Morpho::Handle<Texture> texture;
-    Sampler sampler;
+    Morpho::Handle<Sampler> sampler;
 };
 
 struct BufferDescriptorInfo {
@@ -168,12 +168,12 @@ struct RenderPassInfo {
     static constexpr uint32_t max_attachment_count = 16;
     RenderPassAttachmentInfo attachments[max_attachment_count];
     uint32_t attachent_count = 0;
-    RenderPassLayout layout;
+    Handle<RenderPassLayout> layout;
 };
 
 class RenderPassInfoBuilder {
 public:
-    RenderPassInfoBuilder& layout(const RenderPassLayout& layout);
+    RenderPassInfoBuilder& layout(Handle<RenderPassLayout> layout);
     RenderPassInfoBuilder& attachment(
         VkAttachmentLoadOp load_op,
         VkAttachmentStoreOp store_op,
@@ -187,12 +187,12 @@ private:
 
 struct RenderPass {
     VkRenderPass render_pass;
-    RenderPassLayout layout;
+    Handle<RenderPassLayout> layout;
 };
 
 struct FramebufferInfo {
     static constexpr uint32_t max_attachment_count = 8 + 1;
-    RenderPassLayout layout;
+    Handle<RenderPassLayout> layout;
     uint32_t attachment_count = 0;
     Handle<Texture> attachments[max_attachment_count];
     VkExtent2D extent;
@@ -200,7 +200,7 @@ struct FramebufferInfo {
 
 class FramebufferInfoBuilder {
 public:
-    FramebufferInfoBuilder& layout(const RenderPassLayout& layout);
+    FramebufferInfoBuilder& layout(Handle<RenderPassLayout> layout);
     FramebufferInfoBuilder& attachment(Handle<Texture> texture);
     FramebufferInfoBuilder& extent(VkExtent2D extent);
     FramebufferInfo info();
@@ -252,7 +252,7 @@ struct PipelineLayout {
 };
 
 struct PipelineInfo {
-    Shader* shaders;
+    Handle<Shader>* shaders;
     uint32_t shader_count;
     VkPrimitiveTopology primitive_topology;
     VkVertexInputAttributeDescription* attributes;
@@ -268,14 +268,14 @@ struct PipelineInfo {
     bool depth_clamp_enabled;
     VkCompareOp depth_compare_op;
     VkPipelineColorBlendAttachmentState blend_state;
-    RenderPassLayout* render_pass_layout;
-    PipelineLayout* pipeline_layout;
+    Handle<RenderPassLayout> render_pass_layout;
+    Handle<PipelineLayout> pipeline_layout;
 };
 
 struct Pipeline {
     VkPipeline pipeline;
     // TODO: Remove
-    PipelineLayout pipeline_layout;
+    Handle<PipelineLayout> pipeline_layout;
 };
 
 }

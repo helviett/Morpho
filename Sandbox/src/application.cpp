@@ -1,5 +1,3 @@
-#include "application.hpp"
-#include <algorithm>
 #include <bit>
 #include <fstream>
 #include <glm/ext/matrix_transform.hpp>
@@ -20,6 +18,7 @@
 #include "vulkan/context.hpp"
 #include "vulkan/resources.hpp"
 #include "vulkan/resource_manager.hpp"
+#include "application.hpp"
 
 void traverse_node(
     const tinygltf::Model& model,
@@ -101,20 +100,20 @@ void Application::init() {
 
     using namespace Morpho::Vulkan;
 
-    color_pass_layout = context->acquire_render_pass_layout(RenderPassLayoutInfoBuilder()
+    color_pass_layout = resource_manager->create_render_pass_layout(RenderPassLayoutInfoBuilder()
         .attachment(depth_format)
         .attachment(context->get_swapchain_format())
         .subpass({1}, 0)
         .info()
     );
 
-    depth_pass_layout = context->acquire_render_pass_layout(RenderPassLayoutInfoBuilder()
+    depth_pass_layout = resource_manager->create_render_pass_layout(RenderPassLayoutInfoBuilder()
         .attachment(depth_format)
         .subpass({}, 0)
         .info()
     );
 
-    depth_pass = context->acquire_render_pass(RenderPassInfoBuilder()
+    depth_pass = resource_manager->create_render_pass(RenderPassInfoBuilder()
         .layout(depth_pass_layout)
         .attachment(
             VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -123,7 +122,7 @@ void Application::init() {
         ).info()
     );
 
-    color_pass = context->acquire_render_pass(Morpho::Vulkan::RenderPassInfoBuilder()
+    color_pass = resource_manager->create_render_pass(Morpho::Vulkan::RenderPassInfoBuilder()
         .layout(color_pass_layout)
         .attachment(
             VK_ATTACHMENT_LOAD_OP_CLEAR,
@@ -182,7 +181,7 @@ void Application::init() {
         pipeline_layout_info.set_binding_count[3] = 1;
         pipeline_layout_info.max_descriptor_set_counts[3] = model.meshes.size();
         set3_bindings[0] = { 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1, vertex_and_fragment, };
-        light_pipeline_layout = context->create_pipeline_layout(pipeline_layout_info);
+        light_pipeline_layout = resource_manager->create_pipeline_layout(pipeline_layout_info);
     }
 
     PipelineInfo pipeline_info{};
@@ -196,7 +195,7 @@ void Application::init() {
     bindings[1] = { 1, sizeof(float) * 3, VK_VERTEX_INPUT_RATE_VERTEX, };
     bindings[2] = { 2, sizeof(float) * 2, VK_VERTEX_INPUT_RATE_VERTEX, };
     bindings[3] = { 3, sizeof(float) * 4, VK_VERTEX_INPUT_RATE_VERTEX, };
-    Shader shaders[2];
+    Morpho::Handle<Shader> shaders[2];
     pipeline_info.attributes = attributes;
     pipeline_info.bindings = bindings;
     pipeline_info.shaders = shaders;
@@ -217,8 +216,8 @@ void Application::init() {
     pipeline_info.shader_count = 2;
     pipeline_info.blend_state = additive;
     pipeline_info.front_face = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-    pipeline_info.render_pass_layout = &color_pass_layout;
-    pipeline_info.pipeline_layout = &light_pipeline_layout;
+    pipeline_info.render_pass_layout = color_pass_layout;
+    pipeline_info.pipeline_layout = light_pipeline_layout;
     pipeline_info.attribute_count = 4;
     pipeline_info.binding_count = 4;
     pipeline_info.depth_test_enabled = true;
@@ -229,27 +228,27 @@ void Application::init() {
         pipeline_info.shaders[0] = gltf_spot_light_vertex_shader;
         pipeline_info.shaders[1] = gltf_spot_light_fragment_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
-        spotlight_pipeline = context->create_pipeline(pipeline_info);
+        spotlight_pipeline = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.cull_mode = VK_CULL_MODE_NONE;
-        spotlight_pipeline_double_sided = context->create_pipeline(pipeline_info);
+        spotlight_pipeline_double_sided = resource_manager->create_pipeline(pipeline_info);
     }
     {
         // Point light shading.
         pipeline_info.shaders[0] = gltf_point_light_vertex_shader;
         pipeline_info.shaders[1] = gltf_point_light_fragment_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
-        pointlight_pipeline = context->create_pipeline(pipeline_info);
+        pointlight_pipeline = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.cull_mode = VK_CULL_MODE_NONE;
-        pointlight_pipeline_double_sided = context->create_pipeline(pipeline_info);
+        pointlight_pipeline_double_sided = resource_manager->create_pipeline(pipeline_info);
     }
     {
         // Directional light shading.
         pipeline_info.shaders[0] = gltf_directional_light_vertex_shader;
         pipeline_info.shaders[1] = gltf_directional_light_fragment_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
-        directional_light_pipeline = context->create_pipeline(pipeline_info);
+        directional_light_pipeline = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.cull_mode = VK_CULL_MODE_NONE;
-        directional_light_pipeline_double_sided = context->create_pipeline(pipeline_info);
+        directional_light_pipeline_double_sided = resource_manager->create_pipeline(pipeline_info);
     }
     pipeline_info.blend_state = no_blend;
     {
@@ -257,18 +256,18 @@ void Application::init() {
         pipeline_info.shaders[0] = no_light_vertex_shader;
         pipeline_info.shaders[1] = no_light_fragment_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
-        no_light_pipeline = context->create_pipeline(pipeline_info);
+        no_light_pipeline = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.cull_mode = VK_CULL_MODE_NONE;
-        no_light_pipeline_double_sided = context->create_pipeline(pipeline_info);
+        no_light_pipeline_double_sided = resource_manager->create_pipeline(pipeline_info);
     }
     {
         // Z prepass.
         pipeline_info.shader_count = 1;
         pipeline_info.shaders[0] = z_prepass_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
-        z_prepass_pipeline = context->create_pipeline(pipeline_info);
+        z_prepass_pipeline = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.cull_mode = VK_CULL_MODE_NONE;
-        z_prepass_pipeline_double_sided = context->create_pipeline(pipeline_info);
+        z_prepass_pipeline_double_sided = resource_manager->create_pipeline(pipeline_info);
     }
     {
         // Depth pass.
@@ -277,19 +276,19 @@ void Application::init() {
         pipeline_info.shader_count = 1;
         pipeline_info.shaders[0] = gltf_depth_pass_vertex_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
-        pipeline_info.render_pass_layout = &depth_pass_layout;
-        depth_pass_pipeline_ccw = context->create_pipeline(pipeline_info);
+        pipeline_info.render_pass_layout = depth_pass_layout;
+        depth_pass_pipeline_ccw = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.depth_clamp_enabled = true;
-        depth_pass_pipeline_ccw_depth_clamp = context->create_pipeline(pipeline_info);
+        depth_pass_pipeline_ccw_depth_clamp = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.cull_mode = VK_CULL_MODE_NONE;
-        depth_pass_pipeline_ccw_depth_clamp_double_sided = context->create_pipeline(pipeline_info);
+        depth_pass_pipeline_ccw_depth_clamp_double_sided = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.depth_clamp_enabled = false;
-        depth_pass_pipeline_ccw_double_sided = context->create_pipeline(pipeline_info);
+        depth_pass_pipeline_ccw_double_sided = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.front_face = VK_FRONT_FACE_CLOCKWISE;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
-        depth_pass_pipeline_cw = context->create_pipeline(pipeline_info);
+        depth_pass_pipeline_cw = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.cull_mode = VK_CULL_MODE_NONE;
-        depth_pass_pipeline_cw_double_sided = context->create_pipeline(pipeline_info);
+        depth_pass_pipeline_cw_double_sided = resource_manager->create_pipeline(pipeline_info);
         pipeline_info.depth_clamp_enabled = false;
     }
 
@@ -300,17 +299,17 @@ void Application::init() {
         // Shadow map debug
         pipeline_info.attribute_count = 0;
         pipeline_info.binding_count = 0;
-        pipeline_info.render_pass_layout = &color_pass_layout;
+        pipeline_info.render_pass_layout = color_pass_layout;
         pipeline_info.shader_count = 2;
         pipeline_info.shaders[0] = full_screen_triangle_shader;
         pipeline_info.shaders[1] = shadow_map_spot_light_fragment_shader;
         pipeline_info.cull_mode = VK_CULL_MODE_BACK_BIT;
-        pipeline_info.pipeline_layout = &light_pipeline_layout;
-        shadow_map_visualization_pipeline = context->create_pipeline(pipeline_info);
+        pipeline_info.pipeline_layout = light_pipeline_layout;
+        shadow_map_visualization_pipeline = resource_manager->create_pipeline(pipeline_info);
     }
 
-    default_sampler = context->create_sampler({ .max_anisotropy = 4.0f, });
-    shadow_sampler = context->create_sampler({
+    default_sampler = resource_manager->create_sampler({ .max_anisotropy = 4.0f, });
+    shadow_sampler = resource_manager->create_sampler({
         .compare_enable = VK_TRUE,
         .compare_op = VK_COMPARE_OP_LESS,
         .max_anisotropy = 4.0f,
@@ -403,7 +402,7 @@ void Application::init() {
     samplers.resize(model.samplers.size());
     for (uint32_t i = 0; i < model.samplers.size(); i++) {
         auto gltf_sampler = model.samplers[i];
-        samplers[i] = context->create_sampler({
+        samplers[i] = resource_manager->create_sampler({
             .address_mode_u = gltf_to_sampler_address_mode(gltf_sampler.wrapT),
             .address_mode_v = gltf_to_sampler_address_mode(gltf_sampler.wrapS),
             .address_mode_w = gltf_to_sampler_address_mode(gltf_sampler.wrapT),
@@ -421,7 +420,7 @@ void Application::init() {
     }, &material_ptr);
     for (uint32_t material_index = 0; material_index < model.materials.size(); material_index++) {
         auto& material = model.materials[material_index];
-        material_descriptor_sets[material_index] = context->create_descriptor_set(light_pipeline_layout, 2);
+        material_descriptor_sets[material_index] = resource_manager->create_descriptor_set(light_pipeline_layout, 2);
         uint64_t offset = material_index * sizeof(MaterialParameters);
         auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
         auto base_color_texture = base_color_texture_index < 0
@@ -442,7 +441,7 @@ void Application::init() {
             ? -1 : model.textures[metalic_roughness_texture_index].sampler;
         auto metalic_roughness_texture_sampler = metalic_roughness_texture_index < 0
             ? default_sampler : samplers[metalic_roughness_texture_sampler_index];
-        context->update_descriptor_set(
+        resource_manager->update_descriptor_set(
             material_descriptor_sets[material_index],
             {
                 {
@@ -483,8 +482,8 @@ void Application::init() {
         .map = Morpho::Vulkan::BufferMap::PERSISTENTLY_MAPPED,
     }, &globals_ptr);
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
-        global_descriptor_sets[i] = context->create_descriptor_set(light_pipeline_layout, 0);
-        context->update_descriptor_set(
+        global_descriptor_sets[i] = resource_manager->create_descriptor_set(light_pipeline_layout, 0);
+        resource_manager->update_descriptor_set(
             global_descriptor_sets[i],
             {
                 {
@@ -495,7 +494,7 @@ void Application::init() {
         );
     }
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
-        shadow_map_visualization_descriptor_set[i] = context->create_descriptor_set(light_pipeline_layout, 1);
+        shadow_map_visualization_descriptor_set[i] = resource_manager->create_descriptor_set(light_pipeline_layout, 1);
     }
 
     mesh_descriptor_sets.resize(model.meshes.size());
@@ -511,9 +510,9 @@ void Application::init() {
     });
     delete [] model_uniform_data;
     for (uint32_t mesh_index = 0; mesh_index < model.meshes.size(); mesh_index++) {
-        mesh_descriptor_sets[mesh_index] = context->create_descriptor_set(light_pipeline_layout, 3);
+        mesh_descriptor_sets[mesh_index] = resource_manager->create_descriptor_set(light_pipeline_layout, 3);
         uint64_t offset = mesh_index * Morpho::round_up(sizeof(ModelUniform), alignment);
-        context->update_descriptor_set(
+        resource_manager->update_descriptor_set(
             mesh_descriptor_sets[mesh_index],
             {
                 {
@@ -560,10 +559,10 @@ void Application::init() {
         .initial_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
     });
     for (uint32_t frame_index = 0; frame_index < frame_in_flight_count; frame_index++) {
-        csm_descriptor_sets[frame_index] = context->create_descriptor_set(light_pipeline_layout, 1);
+        csm_descriptor_sets[frame_index] = resource_manager->create_descriptor_set(light_pipeline_layout, 1);
         uint64_t shadow_uniform_offset = frame_index * Morpho::round_up(sizeof(CsmUniform), alignment);
         uint64_t light_uniform_offset = frame_index * Morpho::round_up(sizeof(DirectionalLight), alignment);
-        context->update_descriptor_set(
+        resource_manager->update_descriptor_set(
             csm_descriptor_sets[frame_index],
             {
                 {
@@ -594,10 +593,10 @@ void Application::init() {
     for (uint32_t cascade_index = 0; cascade_index < cascade_count; cascade_index++) {
         for (uint32_t frame_index = 0; frame_index < frame_in_flight_count; frame_index++) {
             uint32_t ds_index = cascade_index * frame_in_flight_count + frame_index;
-            directional_shadow_map_descriptor_sets[ds_index] = context->create_descriptor_set(light_pipeline_layout, 1);
+            directional_shadow_map_descriptor_sets[ds_index] = resource_manager->create_descriptor_set(light_pipeline_layout, 1);
             uint64_t vp_offset = ds_index * directional_shadow_map_uniform_size;
             uint64_t light_uniform_offset = frame_index * Morpho::round_up(sizeof(DirectionalLight), alignment);
-            context->update_descriptor_set(
+            resource_manager->update_descriptor_set(
                 directional_shadow_map_descriptor_sets[ds_index],
                 {
                     {
@@ -754,7 +753,7 @@ void Application::render_frame() {
         uint64_t alignment = context->get_uniform_buffer_alignment();
         uint64_t sun_uniform_buffer_size = Morpho::round_up(sizeof(ViewProjection), alignment)
             + Morpho::round_up(sizeof(DirectionalLight), alignment);
-        context->update_descriptor_set(
+        resource_manager->update_descriptor_set(
             shadow_map_visualization_descriptor_set[frame_index],
             {
                 {
@@ -1177,10 +1176,10 @@ void Application::add_light(Light light) {
     uint32_t light_offset = light_index * frame_in_flight_count * light_stride;
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
         uint32_t vp_offset = light_offset + i * light_stride;
-        auto ds = context->create_descriptor_set(light_pipeline_layout, 1);
+        auto ds = resource_manager->create_descriptor_set(light_pipeline_layout, 1);
         uint32_t light_data_offset = vp_offset + Morpho::round_up(sizeof(ViewProjection), alignment);
         memcpy(light_ptr + light_data_offset, &light.light_data, light_data_size);
-        context->update_descriptor_set(
+        resource_manager->update_descriptor_set(
             ds,
             {
                 {
@@ -1212,10 +1211,10 @@ void Application::add_light(Light light) {
         for (uint32_t i = 0; i < frame_in_flight_count; i++) {
             for (uint32_t face_index = 0; face_index < 6; face_index++) {
                 uint32_t vp_offset = light_offset + i * light_stride * 6 + face_index * light_stride;
-                auto ds = context->create_descriptor_set(light_pipeline_layout, 1);
+                auto ds = resource_manager->create_descriptor_set(light_pipeline_layout, 1);
                 uint32_t light_data_offset = vp_offset + Morpho::round_up(sizeof(ViewProjection), alignment);
                 memcpy(cube_map_face_ptr + light_data_offset, &light.light_data, light_data_size);
-                context->update_descriptor_set(
+                resource_manager->update_descriptor_set(
                     ds,
                     {
                         {
@@ -1605,8 +1604,8 @@ void Application::generate_mipmaps(Morpho::Vulkan::CommandBuffer& cmd) {
 void Application::draw_model(
     const tinygltf::Model& model,
     Morpho::Vulkan::CommandBuffer& cmd,
-    const Morpho::Vulkan::Pipeline& normal_pipeline,
-    const Morpho::Vulkan::Pipeline& double_sided_pipeline
+    Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+    Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
     for (const auto& scene : model.scenes) {
         draw_scene(model, scene, cmd, normal_pipeline, double_sided_pipeline);
@@ -1619,8 +1618,8 @@ void Application::draw_scene(
     const tinygltf::Model& model,
     const tinygltf::Scene& scene,
     Morpho::Vulkan::CommandBuffer& cmd,
-    const Morpho::Vulkan::Pipeline& normal_pipeline,
-    const Morpho::Vulkan::Pipeline& double_sided_pipeline
+    Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+    Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
     for (const auto node_index : scene.nodes) {
         draw_node(model, model.nodes[node_index], cmd, normal_pipeline, double_sided_pipeline);
@@ -1631,8 +1630,8 @@ void Application::draw_node(
     const tinygltf::Model& model,
     const tinygltf::Node& node,
     Morpho::Vulkan::CommandBuffer& cmd,
-    const Morpho::Vulkan::Pipeline& normal_pipeline,
-    const Morpho::Vulkan::Pipeline& double_sided_pipeline
+    Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+    Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
     if (node.mesh >= 0) {
         draw_mesh(model, node.mesh, cmd, normal_pipeline, double_sided_pipeline);
@@ -1646,8 +1645,8 @@ void Application::draw_mesh(
     const tinygltf::Model& model,
     uint32_t mesh_index,
     Morpho::Vulkan::CommandBuffer& cmd,
-    const Morpho::Vulkan::Pipeline& normal_pipeline,
-    const Morpho::Vulkan::Pipeline& double_sided_pipeline
+    Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+    Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
     for (uint32_t i = 0; i < model.meshes[mesh_index].primitives.size(); i++) {
         draw_primitive(model, mesh_index, i, cmd, normal_pipeline, double_sided_pipeline);
@@ -1659,8 +1658,8 @@ void Application::draw_primitive(
     uint32_t mesh_index,
     uint32_t primitive_index,
     Morpho::Vulkan::CommandBuffer& cmd,
-    const Morpho::Vulkan::Pipeline& normal_pipeline,
-    const Morpho::Vulkan::Pipeline& double_sided_pipeline
+    Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
+    Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
     auto& primitive = model.meshes[mesh_index].primitives[primitive_index];
     if (primitive.attributes.size() != 4) {
@@ -1674,7 +1673,7 @@ void Application::draw_primitive(
         auto& material = model.materials[primitive.material];
         cmd.bind_descriptor_set(material_descriptor_sets[primitive.material]);
         auto& pipeline_to_bind = material.doubleSided ? double_sided_pipeline : normal_pipeline;
-        if (current_material_index < 0 || currently_bound_pipeline.pipeline != pipeline_to_bind.pipeline) {
+        if (current_material_index < 0 || currently_bound_pipeline != pipeline_to_bind) {
             cmd.bind_pipeline(pipeline_to_bind);
             if (primitive_index != 0) {
                 cmd.bind_descriptor_set(mesh_descriptor_sets[mesh_index]);
@@ -1769,11 +1768,10 @@ VkSamplerAddressMode Application::gltf_to_sampler_address_mode(int address_mode)
     return map.at(address_mode);
 }
 
-Morpho::Vulkan::Shader Application::load_shader(const std::string& path) {
+Morpho::Handle<Morpho::Vulkan::Shader> Application::load_shader(const std::string& path) {
     auto code = read_file(path);
     auto stage = path.find(".vert") != std::string::npos
         ? Morpho::Vulkan::ShaderStage::VERTEX
         : Morpho::Vulkan::ShaderStage::FRAGMENT;
-    auto shader = context->acquire_shader(code.data(), (uint32_t)code.size(), stage);
-    return shader;
+    return resource_manager->create_shader(code.data(), (uint32_t)code.size(), stage);
 }
