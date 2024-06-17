@@ -9,13 +9,13 @@ struct Handle
 {
     static Handle<T> null();
 
-    uint32_t index;
-    uint32_t gen;
+    uint16_t index;
+    uint16_t gen;
 };
 
 template<typename T>
 Handle<T> Handle<T>::null() {
-    return { .index = UINT32_MAX, .gen = UINT32_MAX };
+    return { .index = UINT16_MAX, .gen = UINT16_MAX };
 }
 
 template<typename T>
@@ -42,19 +42,19 @@ public:
     void remove(Handle<T> handle);
 private:
     T* data = nullptr;
-    uint32_t* free_list = nullptr;
-    uint32_t* gens = nullptr;
+    uint16_t* free_list = nullptr;
+    uint16_t* gens = nullptr;
 };
 
 template<typename T>
 Handle<T> GenerationalArena<T>::add(T value) {
     if (arrlen(free_list) != 0) {
-        uint32_t index = arrpop(free_list);
+        uint16_t index = arrpop(free_list);
         return { .index = index, .gen = gens[index], };
     }
     arrput(data, value);
     arrput(gens, 0u);
-    return { .index = (uint32_t)arrlenu(data) - 1, .gen = 0 };
+    return { .index = (uint16_t)(arrlenu(data) - 1U), .gen = (uint16_t)0 };
 }
 
 template<typename T>

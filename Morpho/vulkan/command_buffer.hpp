@@ -6,8 +6,6 @@
 
 namespace Morpho::Vulkan {
 
-class Context;
-
 struct TextureBarrier {
     Handle<Texture> texture;
     VkImageLayout old_layout = VK_IMAGE_LAYOUT_UNDEFINED;
@@ -48,6 +46,15 @@ struct BlitInfo {
     Span<const TextureBlit> regions;
 };
 
+struct DrawPassInfo {
+    Handle<RenderPass> render_pass;
+    Framebuffer framebuffer;
+    VkRect2D render_area;
+    Handle<DescriptorSet> global_ds;
+    Span<const VkClearValue> clear_values;
+    Span<const uint8_t> stream;
+};
+
 class CommandBuffer {
 public:
     CommandBuffer(VkCommandBuffer command_buffer);
@@ -80,15 +87,21 @@ public:
     );
     void bind_pipeline(Handle<Pipeline> pipeline);
 
-    void reset();
     void set_viewport(VkViewport viewport);
     void set_scissor(VkRect2D scissor);
     void bind_descriptor_set(Handle<DescriptorSet> set_handle);
+
+    // NOTE: right now there is hard-coded stream type.
+    // Ultimately there should be no DrawStreamInfo.
+    // Any per-stream information can be encoded inside the stream itself (like a Header).
+    // Stream decoding routine can be registered:
+    // Handle<StreamDecoder> sd_handle = context->register_encoder(some_function);
+    // ...
+    // cmd.decode_stream(sd_handle, Span(stream_ptr, size));
+    void decode_stream(DrawPassInfo draw_pass_info);
 private:
     VkCommandBuffer command_buffer;
     Handle<RenderPass> current_render_pass = Handle<RenderPass>::null();
-    Context* context;
-    DescriptorSet descriptor_sets[Limits::MAX_DESCRIPTOR_SET_COUNT];
 };
 
 }

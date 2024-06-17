@@ -2,6 +2,8 @@
 #include "vulkan/context.hpp"
 #include <vulkan/vulkan_core.h>
 #include "vulkan/resource_manager.hpp"
+// Again, use it like this for now for simplicity
+#include "common/draw_stream.hpp"
 
 namespace Morpho::Vulkan {
 
@@ -236,6 +238,79 @@ void CommandBuffer::bind_descriptor_set(Handle<DescriptorSet> set_handle) {
         0,
         nullptr
     );
+}
+
+void CommandBuffer::decode_stream(DrawPassInfo draw_pass_info) {
+    ResourceManager* rm = ResourceManager::get();
+    VkRenderPassBeginInfo begin_info{};
+    begin_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    begin_info.clearValueCount = (uint32_t)draw_pass_info.clear_values.size();
+    begin_info.pClearValues = draw_pass_info.clear_values.data();
+    begin_info.renderPass = rm->get_render_pass(draw_pass_info.render_pass).render_pass;
+    begin_info.framebuffer = draw_pass_info.framebuffer.framebuffer;
+    begin_info.renderArea = draw_pass_info.render_area;
+    current_render_pass = draw_pass_info.render_pass;
+    vkCmdBeginRenderPass(command_buffer, &begin_info, VK_SUBPASS_CONTENTS_INLINE);
+    const VkRect2D rect = draw_pass_info.render_area;
+    set_viewport({
+        .x = (float)rect.offset.x,
+        .y = (float)rect.offset.y,
+        .width = (float)rect.extent.width,
+        .height =(float)rect.extent.height,
+        .minDepth = 0.0f,
+        .maxDepth = 1.0f,
+    });
+    set_scissor(rect);
+    bind_descriptor_set(draw_pass_info.global_ds);
+    Span<const DrawStream::DrawCall> stream = make_const_span(
+        (DrawStream::DrawCall*)draw_pass_info.stream.data(),
+        draw_pass_info.stream.size() / sizeof(DrawStream::DrawCall)
+    );
+    DrawStream::DrawCall current_dc = DrawStream::DrawCall::null();
+    VkCommandBuffer vk_cmd = this->command_buffer;
+    for (uint32_t i = 0; i < stream.size(); i++) {
+        const DrawStream::DrawCall& dc = stream[i];
+        if (current_dc.pipeline != dc.pipeline) {
+            vkCmdBindPipeline(vk_cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, rm->get_pipeline(dc.pipeline).pipeline);
+            current_dc.pipeline = dc.pipeline;
+        }
+        for (uint32_t i = 0; i < 3; i++) {
+            if (current_dc.descriptor_sets[i] != dc.descriptor_sets[i]) {
+                DescriptorSet set = rm->get_descriptor_set(dc.descriptor_sets[i]);
+                vkCmdBindDescriptorSets(
+                    vk_cmd,
+                    VK_PIPELINE_BIND_POINT_GRAPHICS,
+                    set.pipeline_layout,
+                    i + 1,
+                    1,
+                    &set.descriptor_set,
+                    0,
+                    nullptr
+                );
+                current_dc.descriptor_sets[i] = dc.descriptor_sets[i];
+            }
+        }
+        if (current_dc.index_buffer != dc.index_buffer || current_dc.index_buffer_offset != dc.index_buffer_offset) {
+            Buffer buffer = rm->get_buffer(dc.index_buffer);
+            vkCmdBindIndexBuffer(command_buffer, buffer.buffer, dc.index_buffer_offset, VK_INDEX_TYPE_UINT16);
+            current_dc.index_buffer = dc.index_buffer;
+            current_dc.index_buffer_offset = dc.index_buffer_offset;
+        }
+        for (uint32_t i = 0; i < 4; i++) {
+            if (
+                current_dc.vertex_buffers[i] != dc.vertex_buffers[i]
+                || current_dc.vertex_buffer_offsets[i] != dc.vertex_buffer_offsets[i]
+            ) {
+                Buffer buffer = rm->get_buffer(dc.vertex_buffers[i]);
+                uint64_t offset = dc.vertex_buffer_offsets[i];
+                vkCmdBindVertexBuffers(command_buffer, i, 1, &buffer.buffer, &offset);
+                current_dc.vertex_buffers[i] = dc.vertex_buffers[i];
+                current_dc.vertex_buffer_offsets[i] = dc.vertex_buffer_offsets[i];
+            }
+        }
+        vkCmdDrawIndexed(vk_cmd, dc.index_count, 1, dc.index_offset, 0, 0);
+    }
+    vkCmdEndRenderPass(vk_cmd);
 }
 
 }

@@ -15,6 +15,8 @@
 #include <tiny_gltf.h>
 #include <filesystem>
 #include "vulkan/resource_manager.hpp"
+#include "common/draw_stream.hpp"
+#include "common/frame_pool.hpp"
 
 struct Vertex {
     glm::vec3 position;
@@ -221,8 +223,7 @@ private:
     Morpho::Handle<Morpho::Vulkan::DescriptorSet> csm_descriptor_sets[frame_in_flight_count];
     Morpho::Handle<Morpho::Vulkan::Texture> directional_shadow_maps[cascade_count];
     Morpho::Handle<Morpho::Vulkan::DescriptorSet> directional_shadow_map_descriptor_sets[frame_in_flight_count * cascade_count];
-
-
+    Morpho::FramePool<Morpho::DrawStream> draw_stream_pool;
 
     bool debug_mode = false;
     uint32_t current_light_index = 0;
@@ -253,7 +254,6 @@ private:
         {"TEXCOORD_0", 2},
         {"TANGENT", 3},
     };
-    std::map<uint32_t, Morpho::Vulkan::Pipeline> pipeline_cache;
     std::vector<Morpho::Vulkan::TextureBarrier> texture_barriers;
 
     void main_loop();
@@ -270,28 +270,28 @@ private:
     void generate_mipmaps(Morpho::Vulkan::CommandBuffer& cmd);
     void draw_model(
         const tinygltf::Model& model,
-        Morpho::Vulkan::CommandBuffer& cmd,
+        Morpho::DrawStream& draw_stream,
         Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
         Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
     void draw_scene(
         const tinygltf::Model& model,
         const tinygltf::Scene& scene,
-        Morpho::Vulkan::CommandBuffer& cmd,
+        Morpho::DrawStream& draw_stream,
         Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
         Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
     void draw_node(
         const tinygltf::Model& model,
         const tinygltf::Node& node,
-        Morpho::Vulkan::CommandBuffer& cmd,
+        Morpho::DrawStream& draw_stream,
         Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
         Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
     void draw_mesh(
         const tinygltf::Model& model,
         uint32_t mesh_index,
-        Morpho::Vulkan::CommandBuffer& cmd,
+        Morpho::DrawStream& draw_stream,
         Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
         Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
@@ -299,7 +299,7 @@ private:
         const tinygltf::Model& model,
         uint32_t mesh_index,
         uint32_t primitive_index,
-        Morpho::Vulkan::CommandBuffer& cmd,
+        Morpho::DrawStream& draw_stream,
         Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
         Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
     );
@@ -312,19 +312,21 @@ private:
         const Light& point_light
     );
     void render_depth_pass_for_directional_light(Morpho::Vulkan::CommandBuffer& cmd);
-    void render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd);
+    void render_z_prepass(Morpho::DrawStream& draw_stream);
     void begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd);
-    void render_color_pass_for_directional_light(Morpho::Vulkan::CommandBuffer& cmd);
+    void render_color_pass_for_directional_light(Morpho::DrawStream& stream);
     void render_color_pass_for_spotlight(
-        Morpho::Vulkan::CommandBuffer& cmd,
+        Morpho::DrawStream& stream,
         const Light& light
     );
     void render_color_pass_for_point_light(
-        Morpho::Vulkan::CommandBuffer& cmd,
+        Morpho::DrawStream& stream,
         const Light& light
     );
     void add_light(Light light);
     Morpho::Handle<Morpho::Vulkan::Shader> load_shader(const std::string& path);
+    Morpho::DrawStream acquire_draw_stream();
+    void release_draw_stream(Morpho::DrawStream&& stream);
     static void process_keyboard_input(GLFWwindow* window, int key, int scancode, int action, int mods);
     static void process_cursor_position(GLFWwindow* window, double xpos, double ypos);
     static void process_mouse_button_input(GLFWwindow* window, int button, int action, int mods);

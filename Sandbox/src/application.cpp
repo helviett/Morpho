@@ -85,6 +85,7 @@ void precalculate_transforms(
 
 void Application::init() {
     resource_manager = Morpho::Vulkan::ResourceManager::get();
+    Morpho::FramePool<Morpho::DrawStream>::init(&draw_stream_pool, frame_in_flight_count);
     z_prepass_shader = load_shader("./assets/shaders/z_prepass.vert.spv");
     gltf_depth_pass_vertex_shader = load_shader("./assets/shaders/gltf_depth_pass.vert.spv");
     gltf_spot_light_vertex_shader = load_shader("./assets/shaders/gltf_spot_light.vert.spv");
@@ -748,25 +749,7 @@ void Application::set_graphics_context(Morpho::Vulkan::Context* context) {
 void Application::render_frame() {
     context->begin_frame();
     resource_manager->next_frame();
-    bool use_debug_pipeline = debug_mode;
-    if (use_debug_pipeline) {
-        uint64_t alignment = context->get_uniform_buffer_alignment();
-        uint64_t sun_uniform_buffer_size = Morpho::round_up(sizeof(ViewProjection), alignment)
-            + Morpho::round_up(sizeof(DirectionalLight), alignment);
-        resource_manager->update_descriptor_set(
-            shadow_map_visualization_descriptor_set[frame_index],
-            {
-                {
-                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .buffer_infos = {{ directional_shadow_map_uniform_buffer, frame_index * sun_uniform_buffer_size, sizeof(ViewProjection) }},
-                },
-                {
-                    .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-                    .texture_infos = {{ directional_shadow_maps[current_slice_index], default_sampler }},
-                },
-            }
-        );
-    }
+    draw_stream_pool.next_frame();
     auto cmd = context->acquire_command_buffer();
     if (is_first_update) {
         initialize_static_resources(cmd);
@@ -786,26 +769,38 @@ void Application::render_frame() {
         }
     }
     transition_shadow_maps(cmd);
-    begin_color_pass(cmd);
-    if (use_debug_pipeline) {
-        cmd.bind_descriptor_set(shadow_map_visualization_descriptor_set[frame_index]);
-        cmd.bind_pipeline(shadow_map_visualization_pipeline);
-        cmd.draw(3, 1, 0, 0);
-    } else {
-        render_z_prepass(cmd);
-        render_color_pass_for_directional_light(cmd);
-        for (int i = 0; i < lights.size(); i++) {
-            if (lights[i].light_type == LightType::SpotLight) {
-                render_color_pass_for_spotlight(cmd, lights[i]);
-            }
-        }
-        for (int i = 0; i < lights.size(); i++) {
-            if (lights[i].light_type == LightType::PointLight) {
-                render_color_pass_for_point_light(cmd, lights[i]);
-            }
+    Morpho::DrawStream stream = acquire_draw_stream();
+    render_z_prepass(stream);
+    render_color_pass_for_directional_light(stream);
+    for (int i = 0; i < lights.size(); i++) {
+        if (lights[i].light_type == LightType::SpotLight) {
+            render_color_pass_for_spotlight(stream, lights[i]);
         }
     }
-    cmd.end_render_pass(); // color pass
+    for (int i = 0; i < lights.size(); i++) {
+        if (lights[i].light_type == LightType::PointLight) {
+            render_color_pass_for_point_light(stream, lights[i]);
+        }
+    }
+    auto extent = context->get_swapchain_extent();
+    auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
+        .layout(color_pass_layout)
+        .extent(extent)
+        .attachment(depth_buffer)
+        .attachment(context->get_swapchain_texture())
+        .info()
+    );
+    cmd.decode_stream({
+        .render_pass = color_pass,
+        .framebuffer = framebuffer,
+        .render_area = { .offset = { 0, 0 }, .extent = extent },
+        .global_ds = global_descriptor_sets[frame_index],
+        .clear_values = {
+            {1.0f, 0},
+            {0.0f, 0.0f, 0.0f, 0.0f},
+        },
+        .stream = Morpho::make_const_span(stream.get_stream(), stream.get_size()),
+    });
     cmd.barrier(
         {{
            .texture = context->get_swapchain_texture(),
@@ -830,28 +825,27 @@ void Application::render_depth_pass_for_spot_light(
     const Light& light
 ) {
     auto extent = context->get_swapchain_extent();
-    cmd.set_viewport({ 0, 0, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
-    cmd.set_scissor({ {0, 0}, extent });
-    cmd.bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index]);
+    Morpho::DrawStream draw_stream = acquire_draw_stream();
     auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
         .layout(depth_pass_layout)
         .extent(extent)
         .attachment(light.shadow_map)
         .info()
     );
-    cmd.begin_render_pass(
-        depth_pass,
-        framebuffer,
-        { {0, 0}, extent },
-        {
+    draw_stream.bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index], 1);
+    draw_model(model, draw_stream, depth_pass_pipeline_ccw, depth_pass_pipeline_ccw_double_sided);
+    cmd.decode_stream({
+        .render_pass = depth_pass,
+        .framebuffer = framebuffer,
+        .render_area = { .offset = { 0, 0 }, .extent = extent },
+        .global_ds = global_descriptor_sets[frame_index],
+        .clear_values = {
             {1.0f, 0},
             {0.0f, 0.0f, 0.0f, 0.0f},
-        }
-    );
-    draw_model(model, cmd, depth_pass_pipeline_ccw, depth_pass_pipeline_ccw_double_sided);
-    cmd.end_render_pass();
+        },
+        .stream = Morpho::make_const_span(draw_stream.get_stream(), draw_stream.get_size()),
+    });
 }
-
 
 void Application::render_depth_pass_for_point_light(
     Morpho::Vulkan::CommandBuffer& cmd,
@@ -893,19 +887,21 @@ void Application::render_depth_pass_for_point_light(
             .attachment(light.views[i])
             .info()
         );
-        cmd.begin_render_pass(
-            depth_pass,
-            framebuffer,
-            { {0, 0}, extent },
-            {
+        Morpho::DrawStream draw_stream = acquire_draw_stream();
+        uint32_t ds_index = frame_in_flight_count * light.descriptor_set_start_index * 6 + frame_index * 6 + i;
+        draw_stream.bind_descriptor_set(cube_map_face_descriptor_sets[ds_index], 1);
+        draw_model(model, draw_stream, depth_pass_pipeline_ccw, depth_pass_pipeline_ccw_double_sided);
+        cmd.decode_stream({
+            .render_pass = depth_pass,
+            .framebuffer = framebuffer,
+            .render_area = { .offset = { 0, 0 }, .extent = extent },
+            .global_ds = global_descriptor_sets[frame_index],
+            .clear_values = {
                 {1.0f, 0},
                 {0.0f, 0.0f, 0.0f, 0.0f},
-            }
-        );
-        uint32_t ds_index = frame_in_flight_count * light.descriptor_set_start_index * 6 + frame_index * 6 + i;
-        cmd.bind_descriptor_set(cube_map_face_descriptor_sets[ds_index]);
-        draw_model(model, cmd, depth_pass_pipeline_cw, depth_pass_pipeline_cw_double_sided);
-        cmd.end_render_pass();
+            },
+            .stream = Morpho::make_const_span(draw_stream.get_stream(), draw_stream.get_size()),
+        });
     }
 }
 
@@ -915,75 +911,49 @@ void Application::render_depth_pass_for_directional_light(Morpho::Vulkan::Comman
    cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f });
    cmd.set_scissor({ {0, 0}, extent });
    for (uint32_t cascade_index = 0; cascade_index < cascade_count; cascade_index++) {
-       cmd.bind_descriptor_set(directional_shadow_map_descriptor_sets[cascade_index * frame_in_flight_count + frame_index]);
-       auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
+        auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
            .layout(depth_pass_layout)
            .extent(extent)
            .attachment(directional_shadow_maps[cascade_index])
            .info()
         );
-       cmd.begin_render_pass(
-           depth_pass,
-           framebuffer,
-           { {0, 0}, extent },
-           {
-               {1.0f, 0},
-               {0.0f, 0.0f, 0.0f, 0.0f},
-           }
-        );
-       draw_model(model, cmd, depth_pass_pipeline_ccw_depth_clamp, depth_pass_pipeline_ccw_depth_clamp_double_sided);
-       cmd.end_render_pass();
+        Morpho::DrawStream draw_stream = draw_stream_pool.get_or_add([] { return Morpho::DrawStream{};});
+        draw_stream.bind_descriptor_set(directional_shadow_map_descriptor_sets[cascade_index * frame_in_flight_count + frame_index], 1);
+        draw_model(model, draw_stream, depth_pass_pipeline_ccw_depth_clamp, depth_pass_pipeline_ccw_depth_clamp_double_sided);
+        cmd.decode_stream({
+            .render_pass = depth_pass,
+            .framebuffer = framebuffer,
+            .render_area = { .offset = { .x = 0, .y = 0 }, .extent = extent },
+            .global_ds = global_descriptor_sets[frame_index],
+            .clear_values = { { 1.0f, 0}, {0.0f, 0.0f, 0.0f, 0.0f} },
+            .stream = Morpho::make_const_span(draw_stream.get_stream(), draw_stream.get_size()),
+        });
    }
 }
 
-void Application::render_z_prepass(Morpho::Vulkan::CommandBuffer& cmd) {
-    auto extent = context->get_swapchain_extent();
-    cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
-    cmd.set_scissor({ {0, 0}, extent });
-    draw_model(model, cmd, z_prepass_pipeline, z_prepass_pipeline_double_sided);
-}
-
-void Application::begin_color_pass(Morpho::Vulkan::CommandBuffer& cmd) {
-    auto extent = context->get_swapchain_extent();
-    cmd.set_viewport({ 0.0f, 0.0f, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
-    cmd.set_scissor({ {0, 0}, extent });
-    auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
-        .layout(color_pass_layout)
-        .extent(extent)
-        .attachment(depth_buffer)
-        .attachment(context->get_swapchain_texture())
-        .info()
-    );
-    cmd.begin_render_pass(
-        color_pass,
-        framebuffer,
-        { {0, 0}, extent },
-        {
-            {1.0f, 0},
-            {0.0f, 0.0f, 0.0f, 0.0f},
-        }
-    );
+void Application::render_z_prepass(Morpho::DrawStream& draw_stream) {
+    draw_model(model, draw_stream, z_prepass_pipeline, z_prepass_pipeline_double_sided);
 }
 
 void Application::render_color_pass_for_point_light(
-    Morpho::Vulkan::CommandBuffer& cmd,
+    Morpho::DrawStream& stream,
     const Light& light
 ) {
-    cmd.bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index]);
-    draw_model(model, cmd, pointlight_pipeline, pointlight_pipeline_double_sided);
+    stream.bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index], 1);
+    draw_model(model, stream, pointlight_pipeline, pointlight_pipeline_double_sided);
 }
 
-void Application::render_color_pass_for_directional_light(Morpho::Vulkan::CommandBuffer& cmd) {
-    cmd.bind_descriptor_set(csm_descriptor_sets[frame_index]);
-    draw_model(model, cmd, directional_light_pipeline, directional_light_pipeline_double_sided);
+void Application::render_color_pass_for_directional_light(Morpho::DrawStream& stream) {
+    stream.bind_descriptor_set(csm_descriptor_sets[frame_index], 1);
+    draw_model(model, stream, directional_light_pipeline, directional_light_pipeline_double_sided);
 }
 
 void Application::render_color_pass_for_spotlight(
-    Morpho::Vulkan::CommandBuffer& cmd,
+    Morpho::DrawStream& stream,
     const Light& light
 ) {
-    cmd.bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index]);
-    draw_model(model, cmd, spotlight_pipeline, spotlight_pipeline_double_sided);
+    stream.bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index], 1);
+    draw_model(model, stream, spotlight_pipeline, spotlight_pipeline_double_sided);
 }
 
 std::vector<char> Application::read_file(const std::string& filename) {
@@ -1015,6 +985,7 @@ void Application::process_keyboard_input(GLFWwindow* window, int key_code, int s
 }
 
 void Application::process_cursor_position(GLFWwindow* window, double xpos, double ypos) {
+
     Application* app = (Application*)glfwGetWindowUserPointer(window);
     app->input.set_mouse_position((float)xpos, (float)ypos);
 }
@@ -1603,12 +1574,12 @@ void Application::generate_mipmaps(Morpho::Vulkan::CommandBuffer& cmd) {
 
 void Application::draw_model(
     const tinygltf::Model& model,
-    Morpho::Vulkan::CommandBuffer& cmd,
+    Morpho::DrawStream& draw_stream,
     Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
     Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
     for (const auto& scene : model.scenes) {
-        draw_scene(model, scene, cmd, normal_pipeline, double_sided_pipeline);
+        draw_scene(model, scene, draw_stream, normal_pipeline, double_sided_pipeline);
     }
     currently_bound_pipeline = {};
     current_material_index = -1;
@@ -1617,39 +1588,39 @@ void Application::draw_model(
 void Application::draw_scene(
     const tinygltf::Model& model,
     const tinygltf::Scene& scene,
-    Morpho::Vulkan::CommandBuffer& cmd,
+    Morpho::DrawStream& draw_stream,
     Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
     Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
     for (const auto node_index : scene.nodes) {
-        draw_node(model, model.nodes[node_index], cmd, normal_pipeline, double_sided_pipeline);
+        draw_node(model, model.nodes[node_index], draw_stream, normal_pipeline, double_sided_pipeline);
     }
 }
 
 void Application::draw_node(
     const tinygltf::Model& model,
     const tinygltf::Node& node,
-    Morpho::Vulkan::CommandBuffer& cmd,
+    Morpho::DrawStream& draw_stream,
     Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
     Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
     if (node.mesh >= 0) {
-        draw_mesh(model, node.mesh, cmd, normal_pipeline, double_sided_pipeline);
+        draw_mesh(model, node.mesh, draw_stream, normal_pipeline, double_sided_pipeline);
     }
     for (uint32_t i = 0; i < node.children.size(); i++) {
-        draw_node(model, model.nodes[node.children[i]], cmd, normal_pipeline, double_sided_pipeline);
+        draw_node(model, model.nodes[node.children[i]], draw_stream, normal_pipeline, double_sided_pipeline);
     }
 }
 
 void Application::draw_mesh(
     const tinygltf::Model& model,
     uint32_t mesh_index,
-    Morpho::Vulkan::CommandBuffer& cmd,
+    Morpho::DrawStream& draw_stream,
     Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
     Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
     for (uint32_t i = 0; i < model.meshes[mesh_index].primitives.size(); i++) {
-        draw_primitive(model, mesh_index, i, cmd, normal_pipeline, double_sided_pipeline);
+        draw_primitive(model, mesh_index, i, draw_stream, normal_pipeline, double_sided_pipeline);
     }
 }
 
@@ -1657,7 +1628,7 @@ void Application::draw_primitive(
     const tinygltf::Model& model,
     uint32_t mesh_index,
     uint32_t primitive_index,
-    Morpho::Vulkan::CommandBuffer& cmd,
+    Morpho::DrawStream& draw_stream,
     Morpho::Handle<Morpho::Vulkan::Pipeline> normal_pipeline,
     Morpho::Handle<Morpho::Vulkan::Pipeline> double_sided_pipeline
 ) {
@@ -1671,19 +1642,19 @@ void Application::draw_primitive(
     }
     if (primitive.material != current_material_index) {
         auto& material = model.materials[primitive.material];
-        cmd.bind_descriptor_set(material_descriptor_sets[primitive.material]);
+        draw_stream.bind_descriptor_set(material_descriptor_sets[primitive.material], 2);
         auto& pipeline_to_bind = material.doubleSided ? double_sided_pipeline : normal_pipeline;
         if (current_material_index < 0 || currently_bound_pipeline != pipeline_to_bind) {
-            cmd.bind_pipeline(pipeline_to_bind);
+            draw_stream.bind_pipeline(pipeline_to_bind);
             if (primitive_index != 0) {
-                cmd.bind_descriptor_set(mesh_descriptor_sets[mesh_index]);
+                draw_stream.bind_descriptor_set(mesh_descriptor_sets[mesh_index], 3);
             }
             currently_bound_pipeline = pipeline_to_bind;
         }
         current_material_index = primitive.material;
     }
     if (primitive_index == 0) {
-        cmd.bind_descriptor_set(mesh_descriptor_sets[mesh_index]);
+        draw_stream.bind_descriptor_set(mesh_descriptor_sets[mesh_index], 3);
     }
     for (auto& key_value : primitive.attributes) {
         if (attribute_name_to_location.find(key_value.first) == attribute_name_to_location.end()) {
@@ -1693,7 +1664,7 @@ void Application::draw_primitive(
         auto accessor_index = key_value.second;
         auto& accessor = model.accessors[accessor_index];
         auto& buffer_view = model.bufferViews[accessor.bufferView];
-        cmd.bind_vertex_buffer(
+        draw_stream.bind_vertex_buffer(
             buffers[buffer_view.buffer],
             binding,
             accessor.byteOffset + buffer_view.byteOffset
@@ -1704,16 +1675,12 @@ void Application::draw_primitive(
         auto& buffer_view = model.bufferViews[accessor.bufferView];
         auto index_type = gltf_to_index_type(accessor.type, accessor.componentType);
         auto index_count = (uint32_t)accessor.count;
-        cmd.bind_index_buffer(
+        draw_stream.bind_index_buffer(
             buffers[buffer_view.buffer],
-            index_type,
             accessor.byteOffset + buffer_view.byteOffset
         );
-        cmd.draw_indexed(
+        draw_stream.draw_indexed(
             index_count,
-            1,
-            0,
-            0,
             0
         );
     }
@@ -1774,4 +1741,8 @@ Morpho::Handle<Morpho::Vulkan::Shader> Application::load_shader(const std::strin
         ? Morpho::Vulkan::ShaderStage::VERTEX
         : Morpho::Vulkan::ShaderStage::FRAGMENT;
     return resource_manager->create_shader(code.data(), (uint32_t)code.size(), stage);
+}
+
+Morpho::DrawStream Application::acquire_draw_stream() {
+    return draw_stream_pool.get_or_add([] { return Morpho::DrawStream{};});
 }

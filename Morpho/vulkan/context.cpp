@@ -345,7 +345,7 @@ void Context::set_frame_context_count(uint32_t count) {
 
 void Context::begin_frame() {
     auto& frame_context = get_current_frame_context();
-    VK_CHECK(vkWaitForFences(device, 1, &frame_context.render_finished_fence, VK_TRUE, 10000000000), __FUNCTION__);
+    vkWaitForFences(device, 1, &frame_context.render_finished_fence, VK_TRUE, 10000000000);
     vkResetFences(device, 1, &frame_context.render_finished_fence);
     vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, frame_context.image_ready_semaphore, VK_NULL_HANDLE, &swapchain_image_index);
     vkResetCommandPool(device, frame_context.command_pool, VK_COMMAND_POOL_RESET_RELEASE_RESOURCES_BIT);
@@ -430,8 +430,6 @@ void Context::submit(CommandBuffer command_buffer) {
 }
 
 Framebuffer Context::acquire_framebuffer(const FramebufferInfo& info) {
-    // Need abstraction over VkImage and VkImageView.
-    // For now assume image_view is swapchain image view.
     VkImageView image_views[FramebufferInfo::max_attachment_count];
     for (uint32_t i = 0; i < info.attachment_count; i++) {
         image_views[i] = ResourceManager::get()->get_texture(info.attachments[i]).image_view;
