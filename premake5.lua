@@ -54,7 +54,21 @@ project "Sandbox"
     kind "WindowedApp"
     language "C++"
     targetdir "build/bin/%{cfg.buildcfg}"
-    files { "Sandbox/**.hpp", "Sandbox/**.cpp" }
+    files {
+        "Sandbox/**.hpp",
+        "Sandbox/**.cpp",
+        "ThirdParty/imgui/backends/imgui_impl_vulkan.h",
+        "ThirdParty/imgui/backends/imgui_impl_vulkan.cpp",
+        "ThirdParty/imgui/backends/imgui_impl_glfw.h",
+        "ThirdParty/imgui/backends/imgui_impl_glfw.cpp",
+        "ThirdParty/imgui/imgui.h",
+        "ThirdParty/imgui/imgui.cpp",
+        "ThirdParty/imgui/imgui_demo.cpp",
+        "ThirdParty/imgui/imgui_draw.cpp",
+        "ThirdParty/imgui/imgui_tables.cpp",
+        "ThirdParty/imgui/imgui_widgets.cpp",
+
+    }
     location "build"
     entrypoint "mainCRTStartup"
     externalincludedirs {
@@ -66,6 +80,8 @@ project "Sandbox"
         "ThirdParty/VulkanMemoryAllocator/include",
         "ThirdParty/tinygltf",
         "ThirdParty/stb",
+        "ThirdParty/imgui/backends",
+        "ThirdParty/imgui/",
     }
     includedirs {
         "Sandbox",

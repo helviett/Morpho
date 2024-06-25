@@ -19,6 +19,8 @@
 #include "vulkan/resources.hpp"
 #include "vulkan/resource_manager.hpp"
 #include "application.hpp"
+#include "imgui_impl_glfw.h"
+#include "imgui_impl_vulkan.h"
 
 void traverse_node(
     const tinygltf::Model& model,
@@ -131,6 +133,18 @@ void Application::init() {
             VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
         ).attachment(
             VK_ATTACHMENT_LOAD_OP_CLEAR,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+        ).info()
+    );
+    imgui_pass = resource_manager->create_render_pass(Morpho::Vulkan::RenderPassInfoBuilder()
+        .layout(color_pass_layout)
+        .attachment(
+            VK_ATTACHMENT_LOAD_OP_LOAD,
+            VK_ATTACHMENT_STORE_OP_STORE,
+            VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+        ).attachment(
+            VK_ATTACHMENT_LOAD_OP_LOAD,
             VK_ATTACHMENT_STORE_OP_STORE,
             VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
         ).info()
@@ -635,6 +649,7 @@ void Application::run() {
     );
     camera.set_position(glm::vec3(0.0f, 0.0f, 0.0f));
     init();
+    init_imgui();
     main_loop();
 }
 
@@ -644,12 +659,34 @@ void Application::init_window() {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
     glfwWindowHint(GLFW_RESIZABLE, GLFW_FALSE);
 
-    window = glfwCreateWindow(1200, 1000, "Vulkan", nullptr, nullptr);
+    window = glfwCreateWindow(window_width, window_height, "Vulkan", nullptr, nullptr);
 
     glfwSetWindowUserPointer(window, this);
     glfwSetKeyCallback(window, process_keyboard_input);
     glfwSetCursorPosCallback(window, process_cursor_position);
     glfwSetMouseButtonCallback(window, process_mouse_button_input);
+}
+
+void Application::init_imgui() {
+    IMGUI_CHECKVERSION();
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO(); (void)io;
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+    io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    ImGui::StyleColorsDark();
+
+    ImGui_ImplGlfw_InitForVulkan(window, true);
+    ImGui_ImplVulkan_InitInfo init_info = {};
+    context->get_vulkans_guts(&init_info.Instance, &init_info.PhysicalDevice, &init_info.Device, &init_info.Queue, &init_info.QueueFamily, &init_info.DescriptorPool);
+    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.RenderPass = resource_manager->get_render_pass(color_pass).render_pass;
+    init_info.Subpass = 0;
+    init_info.MinImageCount = 2;
+    init_info.ImageCount = 2;
+    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+    init_info.Allocator = nullptr;
+    init_info.CheckVkResultFn = nullptr;
+    ImGui_ImplVulkan_Init(&init_info);
 }
 
 void Application::main_loop() {
@@ -661,6 +698,7 @@ void Application::main_loop() {
         input.update();
         glfwPollEvents();
         update((float)delta);
+        gui((float)delta);
         render_frame();
     }
 }
@@ -801,6 +839,7 @@ void Application::render_frame() {
         },
         .stream = Morpho::make_const_span(stream.get_stream(), stream.get_size()),
     });
+    render_gui(cmd);
     cmd.barrier(
         {{
            .texture = context->get_swapchain_texture(),
@@ -1351,6 +1390,35 @@ void Application::update(float delta) {
     globals.camera_position = camera.get_position();
     memcpy(globals_ptr + globals_offset, &globals, sizeof(Globals));
     calculate_cascades();
+}
+
+void Application::gui(float delta) {
+    ImGui_ImplVulkan_NewFrame();
+    ImGui_ImplGlfw_NewFrame();
+    ImGui::NewFrame();
+    static bool show_demo_window = true;
+    ImGui::ShowDemoWindow(&show_demo_window);
+    ImGui::Render();
+}
+
+void Application::render_gui(Morpho::Vulkan::CommandBuffer& cmd) {
+    ImDrawData* draw_data = ImGui::GetDrawData();
+    auto extent = context->get_swapchain_extent();
+    auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
+        .layout(color_pass_layout)
+        .extent(extent)
+        .attachment(depth_buffer)
+        .attachment(context->get_swapchain_texture())
+        .info()
+    );
+    cmd.begin_render_pass(
+        imgui_pass,
+        framebuffer,
+        { .offset = { 0, 0 }, .extent = extent },
+        { }
+    );
+    ImGui_ImplVulkan_RenderDrawData(draw_data, cmd.get_vulkan_handle());
+    cmd.end_render_pass();
 }
 
 void Application::calculate_cascades() {

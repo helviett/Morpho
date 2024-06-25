@@ -97,6 +97,16 @@ public:
     // debug
     void wait_queue_idle();
 
+    // temp for imgui
+    void get_vulkans_guts(
+        VkInstance* instance,
+        VkPhysicalDevice* gpu,
+        VkDevice* device,
+        VkQueue* queue,
+        uint32_t* queue_index,
+        VkDescriptorPool* pool
+    );
+
 private:
 #ifdef NDEBUG
     const bool enable_validation_layers = false;
@@ -115,6 +125,9 @@ private:
     uint32_t graphics_queue_family_index;
     VmaAllocator allocator;
     uint64_t min_uniform_buffer_offset_alignment;
+
+    // Should make descriptor management explicit.
+    VkDescriptorPool imgui_descriptor_pool;
 
     struct FrameContext {
         // Stays here for a while for simplicity

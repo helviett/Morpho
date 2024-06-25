@@ -1,5 +1,6 @@
 #pragma once
 
+#include "imgui_impl_vulkan.h"
 #include "vulkan/resources.hpp"
 #include <vulkan/vulkan_core.h>
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -135,6 +136,7 @@ public:
     void run();
     void set_graphics_context(Morpho::Vulkan::Context* context);
     bool load_scene(std::filesystem::path file_path);
+
 private:
     static const uint32_t frame_in_flight_count = 2;
     static const uint32_t max_light_count = 128;
@@ -147,6 +149,8 @@ private:
 
     Input input;
     GLFWwindow* window;
+    uint32_t window_width = 1200;
+    uint32_t window_height = 1000;
     Key key_map[Input::MAX_KEY_COUNT];
     Morpho::Vulkan::Context* context;
     Morpho::Vulkan::ResourceManager* resource_manager;
@@ -155,6 +159,7 @@ private:
     Morpho::Handle<Morpho::Vulkan::RenderPassLayout> depth_pass_layout;
     Morpho::Handle<Morpho::Vulkan::RenderPass> color_pass;
     Morpho::Handle<Morpho::Vulkan::RenderPass> depth_pass;
+    Morpho::Handle<Morpho::Vulkan::RenderPass> imgui_pass;
     Morpho::Handle<Morpho::Vulkan::PipelineLayout> light_pipeline_layout;
     Morpho::Handle<Morpho::Vulkan::Pipeline> depth_pass_pipeline_ccw_depth_clamp;
     Morpho::Handle<Morpho::Vulkan::Pipeline> depth_pass_pipeline_ccw_depth_clamp_double_sided;
@@ -261,10 +266,13 @@ private:
     void transition_shadow_maps(Morpho::Vulkan::CommandBuffer& cmd);
     void initialize_static_resources(Morpho::Vulkan::CommandBuffer& cmd);
     void init_window();
+    void init_imgui();
     void cleanup();
     void render_frame();
     void initialize_key_map();
     void update(float delta);
+    void gui(float delta);
+    void render_gui(Morpho::Vulkan::CommandBuffer& cmd);
     void calculate_cascades();
     Key glfw_key_code_to_key(int code);
     void generate_mipmaps(Morpho::Vulkan::CommandBuffer& cmd);
