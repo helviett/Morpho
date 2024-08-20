@@ -11,8 +11,9 @@ VkCommandBuffer CommandBuffer::get_vulkan_handle() const {
     return command_buffer;
 }
 
-CommandBuffer::CommandBuffer(VkCommandBuffer command_buffer) {
-    this->command_buffer = command_buffer;
+
+void CommandBuffer::init(VkCommandBuffer cmd) {
+    command_buffer = cmd;
 }
 
 void CommandBuffer::end_render_pass() {

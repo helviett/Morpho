@@ -820,8 +820,8 @@ void ResourceManager::next_frame() {
     src_stages = dst_stages = 0;
     committed = 0;
     cmd_pool->next_frame();
-    *pre_cmd = cmd_pool->allocate();
-    *post_cmd = cmd_pool->allocate();
+    pre_cmd = cmd_pool->allocate();
+    post_cmd = cmd_pool->allocate();
     frame = (frame + 1) % 2;
     for (int32_t i = arrlen(used_staging_buffers) - 1; i >= 0; i--) {
         StagingBuffer* sb = &used_staging_buffers[i];
@@ -1005,8 +1005,6 @@ ResourceManager* ResourceManager::create(Context* context) {
     memset(rm, 0, sizeof(ResourceManager));
     context->create_cmd_pool(&rm->cmd_pool);
     rm->committed = 1;
-    rm->pre_cmd = (CommandBuffer*)malloc(sizeof(CommandBuffer) * 2);
-    rm->post_cmd = rm->pre_cmd + 1;
     rm->allocator = context->allocator;
     rm->next_frame();
     rm->queue = context->graphics_queue;
@@ -1025,7 +1023,6 @@ ResourceManager* ResourceManager::create(Context* context) {
 }
 
 void ResourceManager::destroy(ResourceManager* rm) {
-    free(rm->pre_cmd);
     rm->context->destroy_cmd_pool(rm->cmd_pool);
     free(rm);
     g_resource_manager = nullptr;

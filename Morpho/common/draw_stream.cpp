@@ -58,4 +58,8 @@ void DrawStream::destroy() {
     arrfree(stream);
 }
 
+void DrawStream::reset() {
+    arrsetlen(stream, 0);
+}
+
 }

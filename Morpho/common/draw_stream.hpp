@@ -16,6 +16,7 @@ public:
     uint8_t* get_stream();
     uint64_t get_size();
     void destroy();
+    void reset();
 
     // just keep it public for simplicity for now
     struct DrawCall {

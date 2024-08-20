@@ -55,7 +55,7 @@ inline VkImageAspectFlags derive_aspect(VkFormat format) {
 struct CmdPool {
 public:
     friend class Context;
-    CommandBuffer allocate();
+    CommandBuffer* allocate();
     void next_frame();
 private:
     uint32_t current_frame;
@@ -79,8 +79,8 @@ public:
     void set_frame_context_count(uint32_t count);
     void begin_frame();
     void end_frame();
-    CommandBuffer acquire_command_buffer();
-    void submit(CommandBuffer command_buffer);
+    CommandBuffer* acquire_command_buffer();
+    void submit(CommandBuffer* command_buffer);
     Framebuffer acquire_framebuffer(const FramebufferInfo& info);
 
     void create_cmd_pool(CmdPool** pool);

@@ -57,8 +57,8 @@ struct DrawPassInfo {
 
 class CommandBuffer {
 public:
-    CommandBuffer(VkCommandBuffer command_buffer);
     VkCommandBuffer get_vulkan_handle() const;
+    void init(VkCommandBuffer cmd);
     void end_render_pass();
     void bind_vertex_buffer(Handle<Buffer> vertex_buffer, uint32_t binding, VkDeviceSize offset = 0);
     void bind_index_buffer(Handle<Buffer> index_buffer, VkIndexType index_type, VkDeviceSize offset = 0);

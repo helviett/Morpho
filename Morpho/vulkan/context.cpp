@@ -382,7 +382,7 @@ void Context::end_frame() {
     frame_context_index = (frame_context_index + 1) % frame_context_count;
 }
 
-CommandBuffer Context::acquire_command_buffer() {
+CommandBuffer* Context::acquire_command_buffer() {
     VkCommandBuffer command_buffer;
     VkCommandBufferAllocateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
@@ -398,7 +398,14 @@ CommandBuffer Context::acquire_command_buffer() {
 
     vkBeginCommandBuffer(command_buffer, &begin_info);
 
-    CommandBuffer cmd(command_buffer);
+    CommandBuffer* cmd = (CommandBuffer*)calloc(1, sizeof(CommandBuffer));
+    cmd->init(command_buffer);
+
+    get_current_frame_context().destructors.push_back([device = device, cmd_pool = get_current_frame_context().command_pool, cmd] {
+        VkCommandBuffer vk_cmd = cmd->get_vulkan_handle();
+        vkFreeCommandBuffers(device, cmd_pool, 1, &vk_cmd);
+        free(cmd);
+    });
 
     return cmd;
 }
@@ -424,8 +431,8 @@ void Context::release_texture_on_frame_begin(Texture texture) {
     });
 }
 
-void Context::submit(CommandBuffer command_buffer) {
-    auto handle = command_buffer.get_vulkan_handle();
+void Context::submit(CommandBuffer* command_buffer) {
+    VkCommandBuffer handle = command_buffer->get_vulkan_handle();
     vkEndCommandBuffer(handle);
     auto& frame_context = get_current_frame_context();
     VkPipelineStageFlags wait_stages[] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, };
@@ -530,7 +537,7 @@ void Context::destroy_cmd_pool(CmdPool* pool) {
 }
 
 
-CommandBuffer CmdPool::allocate() {
+CommandBuffer* CmdPool::allocate() {
     VkCommandBufferAllocateInfo info{};
     info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
     info.commandPool = cmd_pools[current_frame];
@@ -541,7 +548,9 @@ CommandBuffer CmdPool::allocate() {
     VkCommandBufferBeginInfo begin_info{ VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO };
     begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     vkBeginCommandBuffer(vk_cmd, &begin_info);
-    return CommandBuffer(vk_cmd);
+    CommandBuffer* cmd = (CommandBuffer*)calloc(1, sizeof(CommandBuffer));
+    cmd->init(vk_cmd);
+    return cmd;
 }
 
 void CmdPool::next_frame() {
