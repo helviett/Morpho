@@ -15,7 +15,7 @@ struct Handle
 
 template<typename T>
 Handle<T> Handle<T>::null() {
-    return { .index = UINT16_MAX, .gen = UINT16_MAX };
+    return { .index = 0, .gen = 0 };
 }
 
 template<typename T>
@@ -53,8 +53,8 @@ Handle<T> GenerationalArena<T>::add(T value) {
         return { .index = index, .gen = gens[index], };
     }
     arrput(data, value);
-    arrput(gens, 0u);
-    return { .index = (uint16_t)(arrlenu(data) - 1U), .gen = (uint16_t)0 };
+    arrput(gens, 1u);
+    return { .index = (uint16_t)(arrlenu(data) - 1u), .gen = (uint16_t)1u };
 }
 
 template<typename T>
