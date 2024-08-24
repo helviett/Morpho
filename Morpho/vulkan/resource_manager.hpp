@@ -56,6 +56,11 @@ public:
     Sampler get_sampler(Handle<Sampler> handle);
     Pipeline get_pipeline(Handle<Pipeline> handle);
 
+    uint8_t* map_buffer(Handle<Buffer> handle);
+    void unmap_buffer(Handle<Buffer> handle);
+    uint8_t* get_mapped_ptr(Handle<Buffer> handle);
+    uint64_t get_buffer_size(Handle<Buffer> handle);
+
     void commit();
     void next_frame();
 private:

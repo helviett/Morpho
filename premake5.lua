@@ -51,7 +51,9 @@ project "GLFW"
     defines { "_GLFW_WIN32", "_UNICODE", "_CRT_SECURE_NO_WARNINGS", }
 
 project "Sandbox"
-    kind "WindowedApp"
+    -- until proper loging is implemeted.
+    --kind "WindowedApp"
+    kind "ConsoleApp"
     language "C++"
     targetdir "build/bin/%{cfg.buildcfg}"
     files {

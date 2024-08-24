@@ -26,7 +26,7 @@ void traverse_node(
     const tinygltf::Model& model,
     const tinygltf::Node& node,
     const glm::mat4& parent_to_world,
-    uint8_t* transforms,
+    FixedSizeAllocator* transforms,
     uint64_t alignment
 ) {
     glm::mat4 local_to_world = glm::mat4(1.0f);
@@ -62,8 +62,7 @@ void traverse_node(
     }
     local_to_world = parent_to_world * local_to_world;
     if (node.mesh >= 0) {
-        uint64_t offset = node.mesh * Morpho::round_up(sizeof(ModelUniform), alignment);
-        ModelUniform* uniform = (ModelUniform*)(transforms + offset);
+        ModelUniform* uniform = (ModelUniform*)transforms->get_mapped_ptr(node.mesh);
         uniform->transform = local_to_world;
         uniform->inverse_transpose_transform = glm::transpose(glm::affineInverse(local_to_world));
     }
@@ -74,7 +73,7 @@ void traverse_node(
 
 void precalculate_transforms(
     const tinygltf::Model& model,
-    uint8_t* transforms,
+    FixedSizeAllocator* transforms,
     uint64_t alignment
 ) {
     for (auto& scene : model.scenes) {
@@ -434,17 +433,24 @@ void Application::init() {
             .max_anisotropy = 4.0f,
         });
     }
+    const uint64_t alignment = context->get_uniform_buffer_alignment();
     material_descriptor_sets.resize(model.materials.size());
-    std::vector<MaterialParameters> material_parameters(model.materials.size());
     material_buffer = resource_manager->create_buffer({
-        .size = model.materials.size() * sizeof(MaterialParameters),
+        .size = FixedSizeAllocator::compute_buffer_size(sizeof(MaterialParameters), model.materials.size(), alignment),
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = Morpho::Vulkan::BufferMap::PERSISTENTLY_MAPPED,
-    }, &material_ptr);
+    });
+    material_buffer_allocator = FixedSizeAllocator::create({
+        .resource_manager = resource_manager,
+        .buffer = material_buffer,
+        .item_size = sizeof(MaterialParameters),
+        .offset_alignment = alignment,
+        .max_item_count = model.materials.size(),
+    });
     for (uint32_t material_index = 0; material_index < model.materials.size(); material_index++) {
         auto& material = model.materials[material_index];
         material_descriptor_sets[material_index] = resource_manager->create_descriptor_set(light_pipeline_layout, 2);
-        uint64_t offset = material_index * sizeof(MaterialParameters);
+        uint64_t offset = material_buffer_allocator.get_offset(material_index);
         auto base_color_texture_index = material.pbrMetallicRoughness.baseColorTexture.index;
         auto base_color_texture = base_color_texture_index < 0
             ? white_texture : textures[base_color_texture_index];
@@ -491,19 +497,25 @@ void Application::init() {
             material.pbrMetallicRoughness.baseColorFactor[2],
             material.pbrMetallicRoughness.baseColorFactor[3]
         );
-        material_parameters[material_index].base_color_factor = base_color_factor;
-        material_parameters[material_index].metalness_factor = material.pbrMetallicRoughness.metallicFactor;
-        material_parameters[material_index].roughness_factor = material.pbrMetallicRoughness.roughnessFactor;
+        MaterialParameters material_parameters{};
+        material_parameters.base_color_factor = base_color_factor;
+        material_parameters.metalness_factor = material.pbrMetallicRoughness.metallicFactor;
+        material_parameters.roughness_factor = material.pbrMetallicRoughness.roughnessFactor;
+        memcpy(material_buffer_allocator.get_mapped_ptr(material_index), &material_parameters, sizeof(material_parameters));
     }
-    memcpy(material_ptr, material_parameters.data(), material_parameters.size() * sizeof(MaterialParameters));
 
-    const uint64_t alignment = context->get_uniform_buffer_alignment();
-    const uint64_t globals_size = Morpho::round_up(sizeof(Globals), alignment);
     globals_buffer = resource_manager->create_buffer({
-        .size = frame_in_flight_count * globals_size,
+        .size = FixedSizeAllocator::compute_buffer_size(sizeof(Globals), frame_in_flight_count, alignment),
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = Morpho::Vulkan::BufferMap::PERSISTENTLY_MAPPED,
-    }, &globals_ptr);
+    });
+    globals_allocator = FixedSizeAllocator::create({
+        .resource_manager = resource_manager,
+        .buffer = globals_buffer,
+        .item_size = sizeof(Globals),
+        .offset_alignment = alignment,
+        .max_item_count = frame_in_flight_count,
+    });
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
         global_descriptor_sets[i] = resource_manager->create_descriptor_set(light_pipeline_layout, 0);
         resource_manager->update_descriptor_set(
@@ -511,7 +523,7 @@ void Application::init() {
             {
                 {
                     .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .buffer_infos = {{ globals_buffer, i * globals_size, sizeof(Globals), }}
+                    .buffer_infos = {{ globals_buffer, globals_allocator.get_offset(i), sizeof(Globals), }}
                 },
             }
         );
@@ -521,20 +533,23 @@ void Application::init() {
     }
 
     mesh_descriptor_sets.resize(model.meshes.size());
-    uint64_t model_uniform_data_size = model.meshes.size() * Morpho::round_up(sizeof(ModelUniform), alignment);
-    uint8_t* model_uniform_data = new uint8_t[model_uniform_data_size];
-    precalculate_transforms(model, model_uniform_data, alignment);
+    
     mesh_uniforms = resource_manager->create_buffer({
-        .size = model.meshes.size() * Morpho::round_up(sizeof(ModelUniform), alignment),
+        .size = FixedSizeAllocator::compute_buffer_size(sizeof(ModelUniform), model.meshes.size(), alignment),
         .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
         .map = BufferMap::CAN_BE_MAPPED,
-        .initial_data = model_uniform_data,
-        .initial_data_size = model_uniform_data_size
     });
-    delete [] model_uniform_data;
+    mesh_uniforms_allocator = FixedSizeAllocator::create({
+        .resource_manager = resource_manager,
+        .buffer = mesh_uniforms,
+        .item_size = sizeof(ModelUniform),
+        .offset_alignment = alignment,
+        .max_item_count = model.meshes.size()
+    });
+    precalculate_transforms(model, &mesh_uniforms_allocator, alignment);
     for (uint32_t mesh_index = 0; mesh_index < model.meshes.size(); mesh_index++) {
         mesh_descriptor_sets[mesh_index] = resource_manager->create_descriptor_set(light_pipeline_layout, 3);
-        uint64_t offset = mesh_index * Morpho::round_up(sizeof(ModelUniform), alignment);
+        uint64_t offset = mesh_index * Morpho::align_up_pow2(sizeof(ModelUniform), alignment);
         resource_manager->update_descriptor_set(
             mesh_descriptor_sets[mesh_index],
             {
@@ -545,34 +560,12 @@ void Application::init() {
             }
         );
     }
-    auto light_uniforms_max_size = Morpho::round_up(sizeof(Light::LightData), alignment)
-        + Morpho::round_up(sizeof(ViewProjection), alignment);
-    light_buffer = resource_manager->create_buffer({
-        .size = max_light_count * frame_in_flight_count * light_uniforms_max_size,
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .map = BufferMap::PERSISTENTLY_MAPPED,
-    }, &light_ptr);
-    cube_map_face_buffer = resource_manager->create_buffer({
-        .size = max_light_count * frame_in_flight_count * light_uniforms_max_size * 6,
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .map = BufferMap::PERSISTENTLY_MAPPED,
-    }, &cube_map_face_ptr);
     auto extent = context->get_swapchain_extent();
     depth_buffer = resource_manager->create_texture({
         .extent = { extent.width, extent.height, 1 },
         .format = depth_format,
         .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
     });
-    directional_light_uniform_buffer = resource_manager->create_buffer({
-        .size = Morpho::round_up(sizeof(DirectionalLight), alignment) * frame_in_flight_count,
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .map = BufferMap::PERSISTENTLY_MAPPED
-    }, &directional_light_uniform_ptr);
-    csm_uniform_buffer = resource_manager->create_buffer({
-        .size = Morpho::round_up(sizeof(CsmUniform), alignment) * frame_in_flight_count,
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .map = BufferMap::PERSISTENTLY_MAPPED
-    }, &csm_uniform_ptr);
     uint32_t max_side_length = std::max(extent.width, extent.height);
     cascaded_shadow_maps = resource_manager->create_texture({
         .extent = { max_side_length, max_side_length, 1 },
@@ -583,33 +576,16 @@ void Application::init() {
     });
     for (uint32_t frame_index = 0; frame_index < frame_in_flight_count; frame_index++) {
         csm_descriptor_sets[frame_index] = resource_manager->create_descriptor_set(light_pipeline_layout, 1);
-        uint64_t shadow_uniform_offset = frame_index * Morpho::round_up(sizeof(CsmUniform), alignment);
-        uint64_t light_uniform_offset = frame_index * Morpho::round_up(sizeof(DirectionalLight), alignment);
         resource_manager->update_descriptor_set(
             csm_descriptor_sets[frame_index],
             {
-                {
-                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .buffer_infos = {{ csm_uniform_buffer, shadow_uniform_offset, sizeof(CsmUniform), }},
-                },
-                {
-                    .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .buffer_infos = {{ directional_light_uniform_buffer, light_uniform_offset, sizeof(DirectionalLight), }},
-                },
                 {
                     .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .texture_infos = {{ cascaded_shadow_maps, shadow_sampler, }},
                 },
             }
         );
-        memcpy(directional_light_uniform_ptr + light_uniform_offset, &sun, sizeof(sun));
     }
-    uint64_t directional_shadow_map_uniform_size = Morpho::round_up(sizeof(ViewProjection), alignment);
-    directional_shadow_map_uniform_buffer = resource_manager->create_buffer({
-        .size = directional_shadow_map_uniform_size * frame_in_flight_count * cascade_count,
-        .usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
-        .map = BufferMap::PERSISTENTLY_MAPPED,
-    }, &directional_shadow_map_uniform_ptr);
     for (uint32_t i = 0; i < cascade_count; i++) {
         directional_shadow_maps[i] = resource_manager->create_texture_view(cascaded_shadow_maps, i, 1);
     }
@@ -617,19 +593,9 @@ void Application::init() {
         for (uint32_t frame_index = 0; frame_index < frame_in_flight_count; frame_index++) {
             uint32_t ds_index = cascade_index * frame_in_flight_count + frame_index;
             directional_shadow_map_descriptor_sets[ds_index] = resource_manager->create_descriptor_set(light_pipeline_layout, 1);
-            uint64_t vp_offset = ds_index * directional_shadow_map_uniform_size;
-            uint64_t light_uniform_offset = frame_index * Morpho::round_up(sizeof(DirectionalLight), alignment);
             resource_manager->update_descriptor_set(
                 directional_shadow_map_descriptor_sets[ds_index],
                 {
-                    {
-                        .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                        .buffer_infos = {{ directional_shadow_map_uniform_buffer, vp_offset, sizeof(ViewProjection), }},
-                    },
-                    {
-                        .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                        .buffer_infos = {{ directional_light_uniform_buffer, light_uniform_offset, sizeof(DirectionalLight), }},
-                    },
                     {
                         .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                         .texture_infos = {{ directional_shadow_maps[cascade_index], shadow_sampler, }},
@@ -638,6 +604,14 @@ void Application::init() {
             );
         }
     }
+    UniformBufferBumpAllocator::init(
+        {
+            .resource_manager = resource_manager,
+            .alignment = alignment,
+            .frames_in_flight_count = frame_in_flight_count,
+        },
+        &per_frame_uniforms
+    );
 }
 
 void Application::run() {
@@ -796,6 +770,9 @@ void Application::render_frame() {
     context->begin_frame();
     resource_manager->next_frame();
     draw_stream_pool.next_frame();
+    per_frame_uniforms.next_frame();
+    calculate_cascades();
+    update_light_uniforms();
     Morpho::Vulkan::CommandBuffer* cmd = context->acquire_command_buffer();
     if (is_first_update) {
         initialize_static_resources(cmd);
@@ -809,11 +786,6 @@ void Application::render_frame() {
             render_depth_pass_for_spot_light(cmd, lights[i]);
         }
     }
-    for (uint32_t i = 0; i < lights.size(); i++) {
-        if (lights[i].light_type == LightType::PointLight) {
-            render_depth_pass_for_point_light(cmd, lights[i]);
-        }
-    }
     transition_shadow_maps(cmd);
     Morpho::DrawStream* stream = draw_stream_pool.get_or_add();
     render_z_prepass(stream);
@@ -821,11 +793,6 @@ void Application::render_frame() {
     for (int i = 0; i < lights.size(); i++) {
         if (lights[i].light_type == LightType::SpotLight) {
             render_color_pass_for_spotlight(stream, lights[i]);
-        }
-    }
-    for (int i = 0; i < lights.size(); i++) {
-        if (lights[i].light_type == LightType::PointLight) {
-            render_color_pass_for_point_light(stream, lights[i]);
         }
     }
     auto extent = context->get_swapchain_extent();
@@ -867,6 +834,51 @@ void Application::render_frame() {
     frame_index = frames_total % frame_in_flight_count;
 }
 
+void Application::update_light_uniforms() {
+    for (uint32_t light_index = 0; light_index < lights.size(); light_index++) {
+        ViewProjection vp;
+        VkExtent2D extent = context->get_swapchain_extent();
+        UniformAllocation light_data_allocation{};
+        if (lights[light_index].light_type == LightType::PointLight) {
+            extent.width = extent.height = std::max(extent.width, extent.height);
+            vp.view = glm::translate(glm::mat4(1.0f), -lights[light_index].light_data.point_light.position);
+        } else if (lights[light_index].light_type == LightType::SpotLight) {
+            auto& spot_light = lights[light_index].light_data.spot_light;
+            glm::vec3 forward = -glm::normalize(spot_light.direction);
+            glm::vec3 right = glm::normalize(glm::cross(world_up, forward));
+            glm::vec3 up = glm::cross(forward, right);
+            glm::vec3 pos = spot_light.position;
+            vp.view = glm::mat4(
+                right.x, -up.x, -forward.x, 0.0f,
+                right.y, -up.y, -forward.y, 0.0f,
+                right.z, -up.z, -forward.z, 0.0f,
+                -dot(right, pos), -dot(-up, pos), -dot(-forward, pos), 1.0f
+            );
+        } else {
+            assert(false);
+        }
+        vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
+        UniformAllocation vp_allocation = per_frame_uniforms.allocate(sizeof(vp));
+        memcpy(vp_allocation.ptr, &vp, sizeof(vp));
+        light_data_allocation = per_frame_uniforms.allocate(sizeof(Light::LightData));
+        memcpy(light_data_allocation.ptr, &lights[light_index].light_data, sizeof(Light::LightData));
+
+        resource_manager->update_descriptor_set(
+            light_descriptor_sets[lights[light_index].descriptor_set_start_index + frame_index],
+            {
+                {
+                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ vp_allocation.buffer, vp_allocation.offset, sizeof(ViewProjection), }},
+                },
+                {
+                    .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ light_data_allocation.buffer, light_data_allocation.offset, sizeof(Light::LightData), }},
+                },
+            }
+        );
+    }
+}
+
 void Application::render_depth_pass_for_spot_light(
     Morpho::Vulkan::CommandBuffer* cmd,
     const Light& light
@@ -892,64 +904,6 @@ void Application::render_depth_pass_for_spot_light(
         },
         .stream = Morpho::make_const_span(draw_stream->get_stream(), draw_stream->get_size()),
     });
-}
-
-void Application::render_depth_pass_for_point_light(
-    Morpho::Vulkan::CommandBuffer* cmd,
-    const Light& light
-) {
-    const auto& point_light = light.light_data.point_light;
-    auto extent = context->get_swapchain_extent();
-    extent.width = extent.height = std::max(extent.width, extent.height);
-    cmd->set_viewport({ 0, 0, (float)extent.width, (float)extent.height, 0.0f, 1.0f, });
-    cmd->set_scissor({ {0, 0}, extent });
-    auto x = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
-    auto y = glm::vec4(0.0f, 1.0f, 0.0f, 0.0f);
-    auto z = glm::vec4(0.0f, 0.0f, 1.0f, 0.0f);
-    auto w = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    glm::mat4 faces[6] = {
-        glm::mat4(-z, -y, x, w),
-        glm::mat4(z, -y, -x, w),
-        glm::mat4(x, z, y, w),
-        glm::mat4(x, -z, -y, w),
-        glm::mat4(x, -y, z, w),
-        glm::mat4(-x, -y, -z, w),
-    };
-    ViewProjection vp;
-    vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
-    uint64_t alignment = context->get_uniform_buffer_alignment();
-    uint32_t light_stride = Morpho::round_up(sizeof(Light::LightData), alignment)
-        + Morpho::round_up(sizeof(ViewProjection), alignment);
-    for (uint32_t i = 0; i < 6; i++) {
-        auto rot = faces[i];
-        auto translate = glm::translate(glm::mat4(1.0f), point_light.position);
-        auto combined = translate * rot;
-        vp.view = glm::inverse(combined);
-        uint32_t offset = frame_in_flight_count * light.descriptor_set_start_index * 6 * light_stride;
-        offset += frame_index * 6 * light_stride + i * light_stride;
-        memcpy(cube_map_face_ptr + offset, &vp, sizeof(ViewProjection));
-        auto framebuffer = context->acquire_framebuffer(Morpho::Vulkan::FramebufferInfoBuilder()
-            .layout(depth_pass_layout)
-            .extent(extent)
-            .attachment(light.views[i])
-            .info()
-        );
-        Morpho::DrawStream* draw_stream = draw_stream_pool.get_or_add();
-        uint32_t ds_index = frame_in_flight_count * light.descriptor_set_start_index * 6 + frame_index * 6 + i;
-        draw_stream->bind_descriptor_set(cube_map_face_descriptor_sets[ds_index], 1);
-        draw_model(model, draw_stream, depth_pass_pipeline_ccw, depth_pass_pipeline_ccw_double_sided);
-        cmd->decode_stream({
-            .render_pass = depth_pass,
-            .framebuffer = framebuffer,
-            .render_area = { .offset = { 0, 0 }, .extent = extent },
-            .global_ds = global_descriptor_sets[frame_index],
-            .clear_values = {
-                {1.0f, 0},
-                {0.0f, 0.0f, 0.0f, 0.0f},
-            },
-            .stream = Morpho::make_const_span(draw_stream->get_stream(), draw_stream->get_size()),
-        });
-    }
 }
 
 void Application::render_depth_pass_for_directional_light(Morpho::Vulkan::CommandBuffer* cmd) {
@@ -980,14 +934,6 @@ void Application::render_depth_pass_for_directional_light(Morpho::Vulkan::Comman
 
 void Application::render_z_prepass(Morpho::DrawStream* draw_stream) {
     draw_model(model, draw_stream, z_prepass_pipeline, z_prepass_pipeline_double_sided);
-}
-
-void Application::render_color_pass_for_point_light(
-    Morpho::DrawStream* stream,
-    const Light& light
-) {
-    stream->bind_descriptor_set(light_descriptor_sets[light.descriptor_set_start_index + frame_index], 1);
-    draw_model(model, stream, pointlight_pipeline, pointlight_pipeline_double_sided);
 }
 
 void Application::render_color_pass_for_directional_light(Morpho::DrawStream* stream) {
@@ -1185,29 +1131,12 @@ Key Application::glfw_key_code_to_key(int code) {
 }
 
 void Application::add_light(Light light) {
-    uint32_t light_index = lights.size();
     light.descriptor_set_start_index = light_descriptor_sets.size();
-    uint32_t light_data_size = light.light_type == LightType::SpotLight ? sizeof(SpotLight) : sizeof(PointLight);
-    uint64_t alignment = context->get_uniform_buffer_alignment();
-    uint32_t light_stride = Morpho::round_up(sizeof(Light::LightData), alignment)
-        + Morpho::round_up(sizeof(ViewProjection), alignment);
-    uint32_t light_offset = light_index * frame_in_flight_count * light_stride;
     for (uint32_t i = 0; i < frame_in_flight_count; i++) {
-        uint32_t vp_offset = light_offset + i * light_stride;
         auto ds = resource_manager->create_descriptor_set(light_pipeline_layout, 1);
-        uint32_t light_data_offset = vp_offset + Morpho::round_up(sizeof(ViewProjection), alignment);
-        memcpy(light_ptr + light_data_offset, &light.light_data, light_data_size);
         resource_manager->update_descriptor_set(
             ds,
             {
-                {
-                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .buffer_infos = {{ light_buffer, vp_offset, sizeof(ViewProjection), }},
-                },
-                {
-                    .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                    .buffer_infos = {{ light_buffer, light_data_offset, light_data_size, }},
-                },
                 {
                     .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                     .texture_infos = {{ light.shadow_map, shadow_sampler }},
@@ -1225,24 +1154,12 @@ void Application::add_light(Light light) {
             );
         }
         // TODO: just decouple spot and point lights into different arrays.
-        light_offset = light_index * frame_in_flight_count * 6 * light_stride;
         for (uint32_t i = 0; i < frame_in_flight_count; i++) {
             for (uint32_t face_index = 0; face_index < 6; face_index++) {
-                uint32_t vp_offset = light_offset + i * light_stride * 6 + face_index * light_stride;
                 auto ds = resource_manager->create_descriptor_set(light_pipeline_layout, 1);
-                uint32_t light_data_offset = vp_offset + Morpho::round_up(sizeof(ViewProjection), alignment);
-                memcpy(cube_map_face_ptr + light_data_offset, &light.light_data, light_data_size);
                 resource_manager->update_descriptor_set(
                     ds,
                     {
-                        {
-                            .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                            .buffer_infos = {{ cube_map_face_buffer, vp_offset, sizeof(ViewProjection), }},
-                        },
-                        {
-                            .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-                            .buffer_infos = {{ cube_map_face_buffer, light_data_offset, light_data_size, }},
-                        },
                         {
                             .binding = 2, .descriptor_type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
                             .texture_infos = {{ light.views[face_index], shadow_sampler }},
@@ -1340,64 +1257,11 @@ void Application::update(float delta) {
         light.shadow_map = shadow_map;
         add_light(light);
     }
-    if (input.was_key_pressed(Key::G) && lights.size() == 0) {
-        auto light_data = PointLight(
-            camera.get_position(),
-            glm::vec3(1.0f),
-            15.0f,
-            2.0f
-        );
-        auto face_extent = extent;
-        face_extent.width = face_extent.height = std::max(face_extent.width, face_extent.height);
-        auto shadow_map = resource_manager->create_texture({
-           .extent = { face_extent.width, face_extent.height, 1 },
-           .format = depth_format,
-           .image_usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-           .array_layer_count = 6,
-           .flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT,
-           .initial_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL,
-        });
-        Light light{};
-        light.light_type = LightType::PointLight;
-        light.light_data.point_light = light_data;
-        light.shadow_map = shadow_map;
-        add_light(light);
-    }
-    // For now just update position of lights every frame.
-    uint64_t alignment = context->get_uniform_buffer_alignment();
-    uint32_t light_stride = Morpho::round_up(sizeof(Light::LightData), alignment)
-        + Morpho::round_up(sizeof(ViewProjection), alignment);
-    for (uint32_t light_index = 0; light_index < lights.size(); light_index++) {
-        uint32_t offset = light_index * frame_in_flight_count * light_stride;
-        offset += light_stride * frame_index;
-        ViewProjection vp;
-        VkExtent2D extent = context->get_swapchain_extent();
-        if (lights[light_index].light_type == LightType::PointLight) {
-            extent.width = extent.height = std::max(extent.width, extent.height);
-            vp.view = glm::translate(glm::mat4(1.0f), -lights[light_index].light_data.point_light.position);
-        } else if (lights[light_index].light_type == LightType::SpotLight) {
-            auto& spot_light = lights[light_index].light_data.spot_light;
-            glm::vec3 forward = -glm::normalize(spot_light.direction);
-            glm::vec3 right = glm::normalize(glm::cross(world_up, forward));
-            glm::vec3 up = glm::cross(forward, right);
-            glm::vec3 pos = spot_light.position;
-            vp.view = glm::mat4(
-                right.x, -up.x, -forward.x, 0.0f,
-                right.y, -up.y, -forward.y, 0.0f,
-                right.z, -up.z, -forward.z, 0.0f,
-                -dot(right, pos), -dot(-up, pos), -dot(-forward, pos), 1.0f
-            );
-        }
-        vp.proj = perspective(glm::radians(90.0f), extent.width / (float)extent.height, 0.01f, 100.0f);
-        memcpy(light_ptr + offset, &vp, sizeof(ViewProjection));
-    }
-    uint64_t globals_offset = frame_index * Morpho::round_up(sizeof(Globals), alignment);
     Globals globals;
     globals.view = camera.get_view();
     globals.proj = camera.get_projection();
     globals.camera_position = camera.get_position();
-    memcpy(globals_ptr + globals_offset, &globals, sizeof(Globals));
-    calculate_cascades();
+    memcpy(globals_allocator.get_mapped_ptr(frame_index), &globals, sizeof(Globals));
 }
 
 void Application::gui(float delta) {
@@ -1430,6 +1294,9 @@ void Application::render_gui(Morpho::Vulkan::CommandBuffer* cmd) {
 }
 
 void Application::calculate_cascades() {
+    UniformAllocation dir_light_alloc = per_frame_uniforms.allocate(sizeof(DirectionalLight));
+    memcpy(dir_light_alloc.ptr, &sun, sizeof(sun));
+
     glm::mat4 camera_to_world = camera.get_transform();
     glm::vec3 forward = -sun.direction;
     glm::vec3 right = glm::normalize(glm::cross(glm::vec3(0.0f, 0.0f, 1.0f), forward));
@@ -1448,7 +1315,6 @@ void Application::calculate_cascades() {
     );
     auto extent = context->get_swapchain_extent();
     extent.width = extent.height = std::max(extent.width, extent.height);
-    uint64_t alignment = context->get_uniform_buffer_alignment();
     float near = camera.get_near();
     float far = camera.get_far();
     float split_lamda = 0.10;
@@ -1497,8 +1363,22 @@ void Application::calculate_cascades() {
         );
         vp.view = world_to_light;
         vp.view[3] = glm::vec4(-light_pos.x, -light_pos.y, -light_pos.z, 1.0f);
-        uint32_t offset = (cascade_index * frame_in_flight_count + frame_index) * Morpho::round_up(sizeof(ViewProjection), alignment);
-        memcpy(directional_shadow_map_uniform_ptr + offset, &vp, sizeof(vp));
+        uint32_t ds_index = cascade_index * frame_in_flight_count + frame_index;
+        UniformAllocation uniform_alloc = per_frame_uniforms.allocate(sizeof(vp));
+        memcpy(uniform_alloc.ptr, &vp, sizeof(vp));
+        resource_manager->update_descriptor_set(
+            directional_shadow_map_descriptor_sets[ds_index],
+            {
+                {
+                    .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ uniform_alloc.buffer, uniform_alloc.offset, sizeof(ViewProjection), }},
+                },
+                {
+                    .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                    .buffer_infos = {{ dir_light_alloc.buffer, dir_light_alloc.offset, sizeof(DirectionalLight), }},
+                },
+            }
+        );
         csm_uniform.ranges[cascade_index] = glm::vec4(range.x, range.y, 0.0f, 0.0f);
         if (cascade_index == 0) {
             csm_uniform.offsets[0] = glm::vec4(0.0f);
@@ -1522,15 +1402,21 @@ void Application::calculate_cascades() {
             );
         }
     }
-    memcpy(
-        csm_uniform_ptr + frame_index * Morpho::round_up(sizeof(csm_uniform), alignment),
-        &csm_uniform,
-        sizeof(csm_uniform)
-    );
-    memcpy(
-        directional_light_uniform_ptr + frame_index * Morpho::round_up(sizeof(DirectionalLight), alignment),
-        &sun,
-        sizeof(sun)
+    UniformAllocation csm_uniform_alloc = per_frame_uniforms.allocate(sizeof(csm_uniform));
+    printf("Buffer: %d\n", csm_uniform_alloc.buffer.index);
+    memcpy(csm_uniform_alloc.ptr, &csm_uniform, sizeof(csm_uniform));
+    resource_manager->update_descriptor_set(
+        csm_descriptor_sets[frame_index],
+        {
+            {
+                .binding = 0, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .buffer_infos = {{ csm_uniform_alloc.buffer, csm_uniform_alloc.offset, sizeof(CsmUniform), }},
+            },
+            {
+                .binding = 1, .descriptor_type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+                .buffer_infos = {{ dir_light_alloc.buffer, dir_light_alloc.offset, sizeof(DirectionalLight), }},
+            },
+        }
     );
 }
 
@@ -1750,6 +1636,7 @@ void Application::draw_primitive(
         auto& accessor = model.accessors[primitive.indices];
         auto& buffer_view = model.bufferViews[accessor.bufferView];
         auto index_type = gltf_to_index_type(accessor.type, accessor.componentType);
+        assert(index_type == VK_INDEX_TYPE_UINT16);
         auto index_count = (uint32_t)accessor.count;
         draw_stream->bind_index_buffer(
             buffers[buffer_view.buffer],

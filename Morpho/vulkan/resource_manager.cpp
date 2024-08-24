@@ -115,15 +115,16 @@ static void derive_stages_access_final_layout_from_texture_usage(
 
 Handle<Buffer> ResourceManager::create_buffer(const BufferInfo& info, uint8_t** mapped_ptr) {
     assert(
-        (mapped_ptr == nullptr && info.map != BufferMap::PERSISTENTLY_MAPPED)
-        || (mapped_ptr != nullptr && info.map != BufferMap::NONE)
+         mapped_ptr == nullptr || (mapped_ptr != nullptr && info.map != BufferMap::NONE)
     );
     Buffer buffer = create_vk_buffer(info);
     Handle<Buffer> handle = buffers.add(buffer);
     bool create_mapped = mapped_ptr != nullptr && info.map != BufferMap::NONE;
     if (create_mapped) {
         map_buffer_helper(&buffer);
-        *mapped_ptr = buffer.mapped;
+        if (mapped_ptr) {
+            *mapped_ptr = buffer.mapped;
+        }
     }
 
     if (info.initial_data == nullptr) {
@@ -812,6 +813,28 @@ Pipeline ResourceManager::get_pipeline(Handle<Pipeline> handle) {
     return pipelines.get(handle);
 }
 
+uint8_t* ResourceManager::map_buffer(Handle<Buffer> handle) {
+    Buffer buffer = get_buffer(handle);
+    map_buffer_helper(&buffer);
+    return buffer.mapped;
+}
+
+void ResourceManager::unmap_buffer(Handle<Buffer> handle) {
+    Buffer buffer = get_buffer(handle);
+    unmap_buffer_helper(&buffer);
+}
+
+uint8_t* ResourceManager::get_mapped_ptr(Handle<Buffer> handle) {
+    return map_buffer(handle);
+}
+
+uint64_t ResourceManager::get_buffer_size(Handle<Buffer> handle) {
+    VmaAllocationInfo info{};
+    VmaAllocation allocation = get_buffer(handle).allocation;
+    vmaGetAllocationInfo(allocator, allocation, &info);
+    return info.size;
+}
+
 void ResourceManager::next_frame() {
     if (!committed) {
         return;
@@ -857,15 +880,15 @@ ResourceManager::StagingBuffer* ResourceManager::acquire_staging_buffer(VkDevice
             return &arrlast(used_staging_buffers);
         }
     }
-    size = max(size, default_staging_buffer_size);
+    uint64_t adjusted_size = max(size, default_staging_buffer_size);
     Buffer buffer = create_vk_buffer({
-        .size = size,
+        .size = adjusted_size,
         .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
         .map = BufferMap::PERSISTENTLY_MAPPED,
     });
     StagingBuffer staging_buffer = {
         .buffer = buffer,
-        .size = size,
+        .size = adjusted_size,
         .write_ptr = (uint8_t*)buffer.mapped,
         .write_offset = 0,
         .used_offset = size,

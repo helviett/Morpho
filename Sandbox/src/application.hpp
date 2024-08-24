@@ -1,6 +1,7 @@
 #pragma once
 
 #include "imgui_impl_vulkan.h"
+#include "src/rendering_utils/allocators.hpp"
 #include "vulkan/resources.hpp"
 #include <vulkan/vulkan_core.h>
 #define VK_USE_PLATFORM_WIN32_KHR
@@ -198,37 +199,27 @@ private:
     std::vector<Morpho::Handle<Morpho::Vulkan::Texture>> textures;
     std::vector<Morpho::Handle<Morpho::Vulkan::Sampler>> samplers;
     Morpho::Handle<Morpho::Vulkan::Buffer> globals_buffer;
-    uint8_t* globals_ptr = nullptr;
+    FixedSizeAllocator globals_allocator;
     Morpho::Handle<Morpho::Vulkan::DescriptorSet> global_descriptor_sets[frame_in_flight_count];
     Morpho::Handle<Morpho::Vulkan::Buffer> material_buffer;
-    uint8_t* material_ptr = nullptr;
+    FixedSizeAllocator material_buffer_allocator;
     std::vector<Morpho::Handle<Morpho::Vulkan::DescriptorSet>> material_descriptor_sets;
-    Morpho::Handle<Morpho::Vulkan::Buffer> light_buffer;
-    uint8_t* light_ptr = nullptr;
     std::vector<Morpho::Handle<Morpho::Vulkan::DescriptorSet>> light_descriptor_sets;
     Morpho::Handle<Morpho::Vulkan::DescriptorSet> shadow_map_visualization_descriptor_set[frame_in_flight_count];
     Morpho::Handle<Morpho::Vulkan::Buffer> mesh_uniforms;
+    FixedSizeAllocator mesh_uniforms_allocator;
     std::vector<Morpho::Handle<Morpho::Vulkan::DescriptorSet>> mesh_descriptor_sets;
-    // TODO: temp solution just to keep light code consistent.
-    Morpho::Handle<Morpho::Vulkan::Buffer> cube_map_face_buffer;
-    uint8_t* cube_map_face_ptr = nullptr;
     std::vector<Morpho::Handle<Morpho::Vulkan::DescriptorSet>> cube_map_face_descriptor_sets;
     uint32_t frames_total = 0;
     uint32_t frame_index = 0;
     std::vector<Light> lights;
     DirectionalLight sun { glm::normalize(glm::vec3(0.0f, -1.0f, 0.0f)), glm::vec3(1.0f, 1.0f, 1.0f) };
-    // Just to escape offset hell until proper allocator is implemented.
-    Morpho::Handle<Morpho::Vulkan::Buffer> directional_shadow_map_uniform_buffer;
-    uint8_t* directional_shadow_map_uniform_ptr = nullptr;
-    Morpho::Handle<Morpho::Vulkan::Buffer> csm_uniform_buffer;
-    uint8_t* csm_uniform_ptr;
-    Morpho::Handle<Morpho::Vulkan::Buffer> directional_light_uniform_buffer;
-    uint8_t* directional_light_uniform_ptr = nullptr;
     Morpho::Handle<Morpho::Vulkan::Texture> cascaded_shadow_maps;
     Morpho::Handle<Morpho::Vulkan::DescriptorSet> csm_descriptor_sets[frame_in_flight_count];
     Morpho::Handle<Morpho::Vulkan::Texture> directional_shadow_maps[cascade_count];
     Morpho::Handle<Morpho::Vulkan::DescriptorSet> directional_shadow_map_descriptor_sets[frame_in_flight_count * cascade_count];
     Morpho::FramePool<Morpho::DrawStream*> draw_stream_pool;
+    UniformBufferBumpAllocator per_frame_uniforms;
 
     bool debug_mode = false;
     uint32_t current_light_index = 0;
@@ -269,6 +260,7 @@ private:
     void init_imgui();
     void cleanup();
     void render_frame();
+    void update_light_uniforms();
     void initialize_key_map();
     void update(float delta);
     void gui(float delta);
@@ -315,19 +307,11 @@ private:
         Morpho::Vulkan::CommandBuffer* cmd,
         const Light& spot_ligt
     );
-    void render_depth_pass_for_point_light(
-        Morpho::Vulkan::CommandBuffer* cmd,
-        const Light& point_light
-    );
     void render_depth_pass_for_directional_light(Morpho::Vulkan::CommandBuffer* cmd);
     void render_z_prepass(Morpho::DrawStream* draw_stream);
     void begin_color_pass(Morpho::Vulkan::CommandBuffer* cmd);
     void render_color_pass_for_directional_light(Morpho::DrawStream* stream);
     void render_color_pass_for_spotlight(
-        Morpho::DrawStream* stream,
-        const Light& light
-    );
-    void render_color_pass_for_point_light(
         Morpho::DrawStream* stream,
         const Light& light
     );
