@@ -362,7 +362,7 @@ Handle<RenderPassLayout> ResourceManager::create_render_pass_layout(const Render
             attachment.final_layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
             break;
         default:
-            attachment.final_layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            attachment.final_layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
             break;
         }
         attachment.load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
@@ -932,7 +932,7 @@ VkRenderPass ResourceManager::create_vk_render_pass(const RenderPassInfo& info, 
         desc.storeOp = attachment_info.store_op;
         desc.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
         desc.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
-        desc.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+        desc.initialLayout = attachment_info.final_layout;
         desc.finalLayout = attachment_info.final_layout;
     }
     VkSubpassDescription subpass{};
@@ -949,7 +949,7 @@ VkRenderPass ResourceManager::create_vk_render_pass(const RenderPassInfo& info, 
         auto attachment_index = subpass_info.color_attachments[j];
         auto& reference = references[reference_index++];
         reference.attachment = attachment_index;
-        reference.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        reference.layout = attachment_descriptions[attachment_index].finalLayout;
     }
     subpass.pResolveAttachments = nullptr;
     subpass.pDepthStencilAttachment = nullptr;
@@ -957,9 +957,7 @@ VkRenderPass ResourceManager::create_vk_render_pass(const RenderPassInfo& info, 
         subpass.pDepthStencilAttachment = &references[reference_index];
         auto& reference = references[reference_index++];
         reference.attachment = subpass_info.depth_attachment.value();
-        //attachment_descriptions[subpass_info.depth_attachment.value()].initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-        // TODO: How to determine if it's readonly?
-        reference.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+        reference.layout = attachment_descriptions[subpass_info.depth_attachment.value()].finalLayout;
     }
     subpass.preserveAttachmentCount = info.attachent_count
         - subpass_info.color_attachment_count
